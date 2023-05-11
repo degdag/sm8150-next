@@ -22,6 +22,17 @@
 	isb
 .endm
 
+.macro __init_el2_hcrx
+	mrs	x1, id_aa64mmfr1_el1
+	ubfx	x0, x1, #ID_AA64MMFR1_EL1_HCX_SHIFT, 4
+	cbz	x0, .Lskip_hcrx_\@
+
+	mrs_s	x0, SYS_HCRX_EL2
+	orr	x0, x0, #HCRX_EL2_TCR2En
+	msr_s	SYS_HCRX_EL2, x0
+.Lskip_hcrx_\@:
+.endm
+
 /*
  * Allow Non-secure EL1 and EL0 to access physical timer and counter.
  * This is not necessary for VHE, since the host kernel runs in EL2,
@@ -150,11 +161,20 @@
 	mov	x0, xzr
 	mrs	x1, id_aa64pfr1_el1
 	ubfx	x1, x1, #ID_AA64PFR1_EL1_SME_SHIFT, #4
-	cbz	x1, .Lset_fgt_\@
+	cbz	x1, .Lset_pie_fgt_\@
 
 	/* Disable nVHE traps of TPIDR2 and SMPRI */
 	orr	x0, x0, #HFGxTR_EL2_nSMPRI_EL1_MASK
 	orr	x0, x0, #HFGxTR_EL2_nTPIDR2_EL0_MASK
+
+.Lset_pie_fgt_\@:
+	mrs_s	x1, SYS_ID_AA64MMFR3_EL1
+	ubfx	x1, x1, #ID_AA64MMFR3_EL1_S1PIE_SHIFT, #4
+	cbz	x1, .Lset_fgt_\@
+
+	/* Disable trapping of PIR_EL1 / PIRE0_EL1 */
+	orr	x0, x0, #HFGxTR_EL2_nPIR_EL1
+	orr	x0, x0, #HFGxTR_EL2_nPIRE0_EL1
 
 .Lset_fgt_\@:
 	msr_s	SYS_HFGRTR_EL2, x0
@@ -184,6 +204,7 @@
  */
 .macro init_el2_state
 	__init_el2_sctlr
+	__init_el2_hcrx
 	__init_el2_timers
 	__init_el2_debug
 	__init_el2_lor
