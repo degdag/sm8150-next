@@ -2652,6 +2652,16 @@ static const struct arm64_cpu_capabilities arm64_features[] = {
 		.cpu_enable = cpu_enable_dit,
 		ARM64_CPUID_FIELDS(ID_AA64PFR0_EL1, DIT, IMP)
 	},
+	{
+		.capability = ARM64_HAS_TCR2,
+		.type = ARM64_CPUCAP_SYSTEM_FEATURE,
+		.sys_reg = SYS_ID_AA64MMFR3_EL1,
+		.sign = FTR_UNSIGNED,
+		.field_pos = ID_AA64MMFR3_EL1_TCRX_SHIFT,
+		.field_width = 4,
+		.min_field_value = ID_AA64MMFR3_EL1_TCRX_IMP,
+		.matches = has_cpuid_feature,
+	},
 	{},
 };
 
