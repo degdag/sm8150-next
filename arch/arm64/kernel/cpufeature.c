@@ -2662,6 +2662,17 @@ static const struct arm64_cpu_capabilities arm64_features[] = {
 		.min_field_value = ID_AA64MMFR3_EL1_TCRX_IMP,
 		.matches = has_cpuid_feature,
 	},
+	{
+		.desc = "Stage-1 Permission Indirection Extension (S1PIE)",
+		.capability = ARM64_HAS_S1PIE,
+		.type = ARM64_CPUCAP_BOOT_CPU_FEATURE,
+		.sys_reg = SYS_ID_AA64MMFR3_EL1,
+		.sign = FTR_UNSIGNED,
+		.field_pos = ID_AA64MMFR3_EL1_S1PIE_SHIFT,
+		.field_width = 4,
+		.min_field_value = ID_AA64MMFR3_EL1_S1PIE_IMP,
+		.matches = has_cpuid_feature,
+	},
 	{},
 };
 
