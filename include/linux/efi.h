@@ -1069,6 +1069,9 @@ int efivars_register(struct efivars *efivars,
 		     const struct efivar_operations *ops);
 int efivars_unregister(struct efivars *efivars);
 
+void efivars_generic_ops_register(void);
+void efivars_generic_ops_unregister(void);
+
 #ifdef CONFIG_EFI
 bool efivar_is_available(void);
 #else
