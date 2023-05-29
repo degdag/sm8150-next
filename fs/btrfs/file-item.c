@@ -94,8 +94,8 @@ int btrfs_inode_set_file_extent_range(struct btrfs_inode *inode, u64 start,
 
 	if (btrfs_fs_incompat(inode->root->fs_info, NO_HOLES))
 		return 0;
-	return set_extent_bits(&inode->file_extent_tree, start, start + len - 1,
-			       EXTENT_DIRTY);
+	return set_extent_bit(&inode->file_extent_tree, start, start + len - 1,
+			      EXTENT_DIRTY, NULL);
 }
 
 /*
@@ -438,9 +438,9 @@ blk_status_t btrfs_lookup_bio_sums(struct btrfs_bio *bbio)
 			    BTRFS_DATA_RELOC_TREE_OBJECTID) {
 				u64 file_offset = bbio->file_offset + bio_offset;
 
-				set_extent_bits(&inode->io_tree, file_offset,
-						file_offset + sectorsize - 1,
-						EXTENT_NODATASUM);
+				set_extent_bit(&inode->io_tree, file_offset,
+					       file_offset + sectorsize - 1,
+					       EXTENT_NODATASUM, NULL);
 			} else {
 				btrfs_warn_rl(fs_info,
 			"csum hole found for disk bytenr range [%llu, %llu)",
@@ -749,7 +749,7 @@ blk_status_t btrfs_csum_one_bio(struct btrfs_bio *bbio)
 	sums->len = bio->bi_iter.bi_size;
 	INIT_LIST_HEAD(&sums->list);
 
-	sums->bytenr = bio->bi_iter.bi_sector << 9;
+	sums->bytenr = bio->bi_iter.bi_sector << SECTOR_SHIFT;
 	index = 0;
 
 	shash->tfm = fs_info->csum_shash;
@@ -799,7 +799,7 @@ blk_status_t btrfs_csum_one_bio(struct btrfs_bio *bbio)
 				ordered = btrfs_lookup_ordered_extent(inode,
 								offset);
 				ASSERT(ordered); /* Logic error */
-				sums->bytenr = (bio->bi_iter.bi_sector << 9)
+				sums->bytenr = (bio->bi_iter.bi_sector << SECTOR_SHIFT)
 					+ total_bytes;
 				index = 0;
 			}
