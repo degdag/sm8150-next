@@ -37,6 +37,7 @@
 #include <linux/ktime.h>
 #include <asm/byteorder.h>
 #include <linux/torture.h>
+#include <linux/sched/rt.h>
 #include "rcu/rcu.h"
 
 MODULE_LICENSE("GPL");
@@ -56,6 +57,9 @@ module_param(verbose_sleep_duration, int, 0444);
 
 static int random_shuffle;
 module_param(random_shuffle, int, 0444);
+
+static int lock_torture_writer_fifo;
+module_param(lock_torture_writer_fifo, int, 0444);
 
 static char *torture_type;
 static int verbose;
@@ -734,7 +738,7 @@ bool stutter_wait(const char *title)
 	cond_resched_tasks_rcu_qs();
 	spt = READ_ONCE(stutter_pause_test);
 	for (; spt; spt = READ_ONCE(stutter_pause_test)) {
-		if (!ret) {
+		if (!ret && !rt_task(current)) {
 			sched_set_normal(current, MAX_NICE);
 			ret = true;
 		}
