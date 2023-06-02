@@ -36,6 +36,23 @@
 
 #define UFFD_FLAGS	(O_CLOEXEC | O_NONBLOCK | UFFD_USER_MODE_ONLY)
 
+#ifndef UFFDIO_CONTINUE_MODE_WP
+#define UFFDIO_CONTINUE_MODE_WP			((__u64)1<<1)
+#endif
+
+#ifndef UFFD_FEATURE_WP_UNPOPULATED
+#define UFFD_FEATURE_WP_UNPOPULATED		(1<<13)
+#endif
+
+/* ioctls for /dev/userfaultfd */
+#ifndef USERFAULTFD_IOC
+#define USERFAULTFD_IOC 0xAA
+#endif
+
+#ifndef USERFAULTFD_IOC_NEW
+#define USERFAULTFD_IOC_NEW _IO(USERFAULTFD_IOC, 0x00)
+#endif
+
 #define _err(fmt, ...)						\
 	do {							\
 		int ret = errno;				\
