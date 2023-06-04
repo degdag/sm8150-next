@@ -34,6 +34,7 @@ LDLIBS = -lrt -lpthread
 
 TEST_GEN_PROGS = cow
 TEST_GEN_PROGS += compaction_test
+TEST_GEN_PROGS += gup_longterm
 TEST_GEN_PROGS += gup_test
 TEST_GEN_PROGS += hmm-tests
 TEST_GEN_PROGS += hugetlb-madvise
@@ -109,8 +110,11 @@ include ../lib.mk
 
 $(TEST_GEN_PROGS): vm_util.c
 
-$(OUTPUT)/uffd-stress: uffd-common.c
-$(OUTPUT)/uffd-unit-tests: uffd-common.c
+$(OUTPUT)/uffd-stress:          uffd-common.c
+$(OUTPUT)/uffd-unit-tests:      uffd-common.c
+$(OUTPUT)/hugepage-mremap:      uffd-common.c
+$(OUTPUT)/write_to_hugetlbfs:   uffd-common.c
+$(OUTPUT)/ksm_functional_tests: uffd-common.c
 
 ifeq ($(MACHINE),x86_64)
 BINARIES_32 := $(patsubst %,$(OUTPUT)/%,$(BINARIES_32))
@@ -164,11 +168,15 @@ endif
 # IOURING_EXTRA_LIBS may get set in local_config.mk, or it may be left empty.
 $(OUTPUT)/cow: LDLIBS += $(IOURING_EXTRA_LIBS)
 
+$(OUTPUT)/gup_longterm: LDLIBS += $(IOURING_EXTRA_LIBS)
+
 $(OUTPUT)/mlock-random-test $(OUTPUT)/memfd_secret: LDLIBS += -lcap
 
 $(OUTPUT)/ksm_tests: LDLIBS += -lnuma
 
 $(OUTPUT)/migration: LDLIBS += -lnuma
+
+$(OUTPUT)/uffd-unit-tests: CFLAGS += -Wno-format-security
 
 local_config.mk local_config.h: check_config.sh
 	/bin/sh ./check_config.sh $(CC)
