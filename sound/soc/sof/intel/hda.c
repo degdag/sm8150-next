@@ -222,6 +222,31 @@ int hda_sdw_check_lcount_common(struct snd_sof_dev *sdev)
 	return 0;
 }
 
+int hda_sdw_check_lcount_ext(struct snd_sof_dev *sdev)
+{
+	struct sof_intel_hda_dev *hdev;
+	struct sdw_intel_ctx *ctx;
+	struct hdac_bus *bus;
+	u32 slcount;
+
+	bus = sof_to_bus(sdev);
+
+	hdev = sdev->pdata->hw_pdata;
+	ctx = hdev->sdw;
+
+	slcount = hdac_bus_eml_get_count(bus, true, AZX_REG_ML_LEPTR_ID_SDW);
+
+	/* Check HW supported vs property value */
+	if (slcount < ctx->count) {
+		dev_err(sdev->dev,
+			"%s: BIOS master count %d is larger than hardware capabilities %d\n",
+			__func__, ctx->count, slcount);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 static int hda_sdw_check_lcount(struct snd_sof_dev *sdev)
 {
 	const struct sof_intel_dsp_desc *chip;
@@ -1562,7 +1587,11 @@ void hda_set_mach_params(struct snd_soc_acpi_mach *mach,
 
 	mach_params = &mach->mach_params;
 	mach_params->platform = dev_name(sdev->dev);
-	mach_params->num_dai_drivers = desc->ops->num_drv;
+	if (IS_ENABLED(CONFIG_SND_SOC_SOF_NOCODEC_DEBUG_SUPPORT) &&
+	    sof_debug_check_flag(SOF_DBG_FORCE_NOCODEC))
+		mach_params->num_dai_drivers = SOF_SKL_NUM_DAIS_NOCODEC;
+	else
+		mach_params->num_dai_drivers = desc->ops->num_drv;
 	mach_params->dai_drivers = desc->ops->drv;
 }
 
