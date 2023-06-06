@@ -1833,7 +1833,18 @@ void btrfs_reclaim_bgs_work(struct work_struct *work)
 		}
 
 next:
-		btrfs_put_block_group(bg);
+		if (!ret) {
+			btrfs_put_block_group(bg);
+		} else {
+			spin_lock(&bg->lock);
+			spin_lock(&fs_info->unused_bgs_lock);
+			if (list_empty(&bg->bg_list))
+				list_add_tail(&bg->bg_list, &fs_info->reclaim_bgs);
+			else
+				btrfs_put_block_group(bg);
+			spin_unlock(&fs_info->unused_bgs_lock);
+			spin_unlock(&bg->lock);
+		}
 
 		mutex_unlock(&fs_info->reclaim_bgs_lock);
 		/*
