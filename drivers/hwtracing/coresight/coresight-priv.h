@@ -82,12 +82,6 @@ enum etm_addr_type {
 	ETM_ADDR_TYPE_STOP,
 };
 
-enum cs_mode {
-	CS_MODE_DISABLED,
-	CS_MODE_SYSFS,
-	CS_MODE_PERF,
-};
-
 /**
  * struct cs_buffer - keep track of a recording session' specifics
  * @cur:	index of the current buffer
@@ -133,7 +127,8 @@ static inline void CS_UNLOCK(void __iomem *addr)
 }
 
 void coresight_disable_path(struct list_head *path);
-int coresight_enable_path(struct list_head *path, u32 mode, void *sink_data);
+int coresight_enable_path(struct list_head *path, enum cs_mode mode,
+			  void *sink_data);
 struct coresight_device *coresight_get_sink(struct list_head *path);
 struct coresight_device *
 coresight_get_enabled_sink(struct coresight_device *source);
@@ -212,13 +207,17 @@ static inline void *coresight_get_uci_data(const struct amba_id *id)
 }
 
 void coresight_release_platform_data(struct coresight_device *csdev,
+				     struct device *dev,
 				     struct coresight_platform_data *pdata);
 struct coresight_device *
 coresight_find_csdev_by_fwnode(struct fwnode_handle *r_fwnode);
-void coresight_set_assoc_ectdev_mutex(struct coresight_device *csdev,
-				      struct coresight_device *ect_csdev);
+void coresight_add_helper(struct coresight_device *csdev,
+			  struct coresight_device *helper);
 
 void coresight_set_percpu_sink(int cpu, struct coresight_device *csdev);
 struct coresight_device *coresight_get_percpu_sink(int cpu);
+int coresight_enable_source(struct coresight_device *csdev, enum cs_mode mode,
+			    void *data);
+bool coresight_disable_source(struct coresight_device *csdev, void *data);
 
 #endif
