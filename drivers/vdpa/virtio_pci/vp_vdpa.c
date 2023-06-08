@@ -478,7 +478,7 @@ static int vp_vdpa_dev_add(struct vdpa_mgmt_dev *v_mdev, const char *name,
 	struct device *dev = &pdev->dev;
 	struct vp_vdpa *vp_vdpa = NULL;
 	u64 device_features;
-	int ret, i;
+	int ret, i, queues;
 
 	vp_vdpa = vdpa_alloc_device(struct vp_vdpa, vdpa,
 				    dev, &vp_vdpa_ops, 1, 1, name, false);
@@ -491,7 +491,14 @@ static int vp_vdpa_dev_add(struct vdpa_mgmt_dev *v_mdev, const char *name,
 	vp_vdpa_mgtdev->vp_vdpa = vp_vdpa;
 
 	vp_vdpa->vdpa.dma_dev = &pdev->dev;
-	vp_vdpa->queues = vp_modern_get_num_queues(mdev);
+	queues = vp_modern_get_num_queues(mdev);
+	if (add_config->mask & BIT_ULL(VDPA_ATTR_DEV_NET_CFG_MAX_VQP)) {
+		if (add_config->net.max_vq_pairs > queues / 2)
+			return -EINVAL;
+		queues = min_t(u32, queues, 2 * add_config->net.max_vq_pairs);
+	}
+
+	vp_vdpa->queues = queues;
 	vp_vdpa->mdev = mdev;
 
 	device_features = vp_modern_get_features(mdev);
