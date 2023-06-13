@@ -142,5 +142,14 @@ static inline void iccci(void *addr)
 }
 
 #endif /* !__ASSEMBLY__ */
+
+#ifndef __powerpc64__
+#ifdef CONFIG_NOT_COHERENT_CACHE
+#ifndef ARCH_DMA_MINALIGN
+#define ARCH_DMA_MINALIGN	L1_CACHE_BYTES
+#endif
+#endif
+#endif
+
 #endif /* __KERNEL__ */
 #endif /* _ASM_POWERPC_CACHE_H */
