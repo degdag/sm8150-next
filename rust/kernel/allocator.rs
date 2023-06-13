@@ -11,9 +11,24 @@ struct KernelAllocator;
 
 unsafe impl GlobalAlloc for KernelAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        // Customized layouts from `Layout::from_size_align()` can have size < align, so pad first.
+        let layout = layout.pad_to_align();
+
+        let mut size = layout.size();
+
+        if layout.align() > bindings::BINDINGS_ARCH_SLAB_MINALIGN {
+            // The alignment requirement exceeds the slab guarantee, thus try to enlarge the size
+            // to use the "power-of-two" size/alignment guarantee (see comments in `kmalloc()` for
+            // more information).
+            //
+            // Note that `layout.size()` (after padding) is guaranteed to be a multiple of
+            // `layout.align()`, so `next_power_of_two` gives enough alignment guarantee.
+            size = size.next_power_of_two();
+        }
+
         // `krealloc()` is used instead of `kmalloc()` because the latter is
         // an inline function and cannot be bound to as a result.
-        unsafe { bindings::krealloc(ptr::null(), layout.size(), bindings::GFP_KERNEL) as *mut u8 }
+        unsafe { bindings::krealloc(ptr::null(), size, bindings::GFP_KERNEL) as *mut u8 }
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, _layout: Layout) {
