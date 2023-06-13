@@ -479,6 +479,7 @@ void vhost_dev_init(struct vhost_dev *dev,
 		vq->log = NULL;
 		vq->indirect = NULL;
 		vq->heads = NULL;
+		vq->worker = NULL;
 		vq->dev = dev;
 		mutex_init(&vq->mutex);
 		vhost_vq_reset(dev, vq);
@@ -545,7 +546,7 @@ static void vhost_worker_free(struct vhost_dev *dev)
 	dev->worker = NULL;
 }
 
-static int vhost_worker_create(struct vhost_dev *dev)
+static struct vhost_worker *vhost_worker_create(struct vhost_dev *dev)
 {
 	struct vhost_worker *worker;
 	struct vhost_task *vtsk;
@@ -553,7 +554,7 @@ static int vhost_worker_create(struct vhost_dev *dev)
 
 	worker = kzalloc(sizeof(*worker), GFP_KERNEL_ACCOUNT);
 	if (!worker)
-		return -ENOMEM;
+		return NULL;
 
 	snprintf(name, sizeof(name), "vhost-%d", current->pid);
 
@@ -572,17 +573,18 @@ static int vhost_worker_create(struct vhost_dev *dev)
 	dev->worker = worker;
 
 	vhost_task_start(vtsk);
-	return 0;
+	return worker;
 
 free_worker:
 	kfree(worker);
-	return -ENOMEM;
+	return NULL;
 }
 
 /* Caller should have device mutex */
 long vhost_dev_set_owner(struct vhost_dev *dev)
 {
-	int err;
+	struct vhost_worker *worker;
+	int err, i;
 
 	/* Is there an owner already? */
 	if (vhost_dev_has_owner(dev)) {
@@ -603,9 +605,14 @@ long vhost_dev_set_owner(struct vhost_dev *dev)
 		 * below since we don't have to worry about vsock queueing
 		 * while we free the worker.
 		 */
-		err = vhost_worker_create(dev);
-		if (err)
+		worker = vhost_worker_create(dev);
+		if (!worker) {
+			err = -ENOMEM;
 			goto err_worker;
+		}
+
+		for (i = 0; i < dev->nvqs; i++)
+			dev->vqs[i]->worker = worker;
 	}
 
 	return 0;
