@@ -132,7 +132,17 @@ EXPORT_SYMBOL(poll_initwait);
 
 static void free_poll_entry(struct poll_table_entry *entry)
 {
-	remove_wait_queue(entry->wait_address, &entry->wait);
+	wait_queue_head_t *whead;
+
+	rcu_read_lock();
+	/* If it is cleared by POLLFREE, it should be rcu-safe.
+	 * If we read NULL we need a barrier paired with smp_store_release()
+	 * in pollwake().
+	 */
+	whead = smp_load_acquire(&entry->wait_address);
+	if (whead)
+		remove_wait_queue(whead, &entry->wait);
+	rcu_read_unlock();
 	fput(entry->filp);
 }
 
@@ -215,6 +225,14 @@ static int pollwake(wait_queue_entry_t *wait, unsigned mode, int sync, void *key
 	entry = container_of(wait, struct poll_table_entry, wait);
 	if (key && !(key_to_poll(key) & entry->key))
 		return 0;
+	if (key_to_poll(key) & POLLFREE) {
+		list_del_init(&wait->entry);
+		/* wait_address !=NULL protects us from the race with
+		 * poll_freewait().
+		 */
+		smp_store_release(&entry->wait_address, NULL);
+		return 0;
+	}
 	return __pollwake(wait, mode, sync, key);
 }
 
