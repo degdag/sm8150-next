@@ -15,6 +15,7 @@
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/input.h>
 #include <dt-bindings/leds/common.h>
+#include <dt-bindings/leds/leds-pca9532.h>
 #include <dt-bindings/mux/ti-serdes.h>
 #include <dt-bindings/phy/phy.h>
 #include "k3-am642.dtsi"
@@ -75,7 +76,7 @@
 	leds {
 		compatible = "gpio-leds";
 		pinctrl-names = "default";
-		pinctrl-0 = <&leds_pins_default &user_leds_pins_default>;
+		pinctrl-0 = <&leds_pins_default>, <&user_leds_pins_default>;
 
 		led-1 {
 			color = <LED_COLOR_ID_RED>;
@@ -210,6 +211,26 @@
 		pagesize = <16>;
 		reg = <0x51>;
 	};
+
+	led-controller@62 {
+		compatible = "nxp,pca9533";
+		reg = <0x62>;
+
+		led-3 {
+			label = "red:user";
+			type = <PCA9532_TYPE_LED>;
+		};
+
+		led-4 {
+			label = "green:user";
+			type = <PCA9532_TYPE_LED>;
+		};
+
+		led-5 {
+			label = "blue:user";
+			type = <PCA9532_TYPE_LED>;
+		};
+	};
 };
 
 &main_mcan0 {
@@ -230,6 +251,7 @@
 	status = "okay";
 	pinctrl-names = "default";
 	pinctrl-0 = <&main_uart0_pins_default>;
+	current-speed = <115200>;
 };
 
 &main_uart1 {
@@ -237,6 +259,7 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&main_uart1_pins_default>;
 	uart-has-rtscts;
+	current-speed = <115200>;
 };
 
 &sdhci1 {
