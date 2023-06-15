@@ -293,18 +293,8 @@ static void mmci_sdmmc_set_clkreg(struct mmci_host *host, unsigned int desired)
 	clk |= host->clk_reg_add;
 	clk |= ddr;
 
-	/*
-	 * SDMMC_FBCK is selected when an external Delay Block is needed
-	 * with SDR104 or HS200.
-	 */
-	if (host->mmc->ios.timing >= MMC_TIMING_UHS_SDR50) {
+	if (host->mmc->ios.timing >= MMC_TIMING_UHS_SDR50)
 		clk |= MCI_STM32_CLK_BUSSPEED;
-		if (host->mmc->ios.timing == MMC_TIMING_UHS_SDR104 ||
-		    host->mmc->ios.timing == MMC_TIMING_MMC_HS200) {
-			clk &= ~MCI_STM32_CLK_SEL_MSK;
-			clk |= MCI_STM32_CLK_SELFBCK;
-		}
-	}
 
 	mmci_write_clkreg(host, clk);
 }
@@ -393,8 +383,10 @@ static bool sdmmc_busy_complete(struct mmci_host *host, u32 status, u32 err_msk)
 	busy_d0 = sdmmc_status & MCI_STM32_BUSYD0;
 
 	/* complete if there is an error or busy_d0end */
-	if ((status & err_msk) || busy_d0end)
+	if ((status & err_msk) || busy_d0end) {
+		host->busy_state = MMCI_BUSY_DONE;
 		goto complete;
+	}
 
 	/*
 	 * On response the busy signaling is reflected in the BUSYD0 flag.
@@ -408,6 +400,7 @@ static bool sdmmc_busy_complete(struct mmci_host *host, u32 status, u32 err_msk)
 			host->busy_status = status &
 				(MCI_CMDSENT | MCI_CMDRESPEND);
 		}
+		host->busy_state = MMCI_BUSY_WAITING_FOR_END_IRQ;
 		return false;
 	}
 
@@ -416,6 +409,7 @@ complete:
 		writel_relaxed(mask & ~host->variant->busy_detect_mask,
 			       base + MMCIMASK0);
 		host->busy_status = 0;
+		host->busy_state = MMCI_BUSY_DONE;
 	}
 
 	writel_relaxed(host->variant->busy_detect_mask, base + MMCICLEAR);
@@ -511,9 +505,26 @@ static int sdmmc_execute_tuning(struct mmc_host *mmc, u32 opcode)
 {
 	struct mmci_host *host = mmc_priv(mmc);
 	struct sdmmc_dlyb *dlyb = host->variant_priv;
+	u32 clk;
+
+	if ((host->mmc->ios.timing != MMC_TIMING_UHS_SDR104 &&
+	     host->mmc->ios.timing != MMC_TIMING_MMC_HS200) ||
+	    host->mmc->actual_clock <= 50000000)
+		return 0;
 
 	if (!dlyb || !dlyb->base)
 		return -EINVAL;
+
+	writel_relaxed(DLYB_CR_DEN, dlyb->base + DLYB_CR);
+
+	/*
+	 * SDMMC_FBCK is selected when an external Delay Block is needed
+	 * with SDR104 or HS200.
+	 */
+	clk = host->clk_reg;
+	clk &= ~MCI_STM32_CLK_SEL_MSK;
+	clk |= MCI_STM32_CLK_SELFBCK;
+	mmci_write_clkreg(host, clk);
 
 	if (sdmmc_dlyb_lng_tuning(host))
 		return -EINVAL;
