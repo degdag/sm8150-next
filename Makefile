@@ -38,6 +38,12 @@ __all:
 # descending is started. They are now explicitly listed as the
 # prepare rule.
 
+ifeq ($(filter 3.%,$(MAKE_VERSION)),)
+short-opts := $(firstword -$(MAKEFLAGS))
+else
+short-opts := $(filter-out --%,$(MAKEFLAGS))
+endif
+
 ifneq ($(sub_make_done),1)
 
 # Do not use make's built-in rules and variables
@@ -90,12 +96,6 @@ endif
 # If the user is running make -s (silent mode), suppress echoing of
 # commands
 # make-4.0 (and later) keep single letter options in the 1st word of MAKEFLAGS.
-
-ifeq ($(filter 3.%,$(MAKE_VERSION)),)
-short-opts := $(firstword -$(MAKEFLAGS))
-else
-short-opts := $(filter-out --%,$(MAKEFLAGS))
-endif
 
 ifneq ($(findstring s,$(short-opts)),)
 quiet=silent_
@@ -217,11 +217,15 @@ else
 need-sub-make := 1
 endif
 
+ifeq ($(findstring w, $(short-opts)),)
 ifeq ($(filter --no-print-directory, $(MAKEFLAGS)),)
 # If --no-print-directory is unset, recurse once again to set it.
 # You may end up with recursing into __sub-make twice. This is due to the
 # behavior change for GNU Make 4.4.1.
 need-sub-make := 1
+endif
+else
+no-print-directory :=
 endif
 
 ifeq ($(need-sub-make),1)
