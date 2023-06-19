@@ -3267,6 +3267,7 @@ static void dm_handle_mst_sideband_msg(struct amdgpu_dm_connector *aconnector)
 
 	while (dret == dpcd_bytes_to_read &&
 		process_count < max_process_count) {
+		u8 ack[DP_PSR_ERROR_STATUS - DP_SINK_COUNT_ESI] = {};
 		u8 retry;
 		dret = 0;
 
@@ -3275,28 +3276,29 @@ static void dm_handle_mst_sideband_msg(struct amdgpu_dm_connector *aconnector)
 		DRM_DEBUG_DRIVER("ESI %02x %02x %02x\n", esi[0], esi[1], esi[2]);
 		/* handle HPD short pulse irq */
 		if (aconnector->mst_mgr.mst_state)
-			drm_dp_mst_hpd_irq(
-				&aconnector->mst_mgr,
-				esi,
-				&new_irq_handled);
+			drm_dp_mst_hpd_irq_handle_event(&aconnector->mst_mgr,
+							esi,
+							ack,
+							&new_irq_handled);
 
 		if (new_irq_handled) {
 			/* ACK at DPCD to notify down stream */
-			const int ack_dpcd_bytes_to_write =
-				dpcd_bytes_to_read - 1;
-
 			for (retry = 0; retry < 3; retry++) {
-				u8 wret;
+				ssize_t wret;
 
-				wret = drm_dp_dpcd_write(
-					&aconnector->dm_dp_aux.aux,
-					dpcd_addr + 1,
-					&esi[1],
-					ack_dpcd_bytes_to_write);
-				if (wret == ack_dpcd_bytes_to_write)
+				wret = drm_dp_dpcd_writeb(&aconnector->dm_dp_aux.aux,
+							  dpcd_addr + 1,
+							  ack[1]);
+				if (wret == 1)
 					break;
 			}
 
+			if (retry == 3) {
+				DRM_ERROR("Failed to ack MST event.\n");
+				return;
+			}
+
+			drm_dp_mst_hpd_irq_send_new_request(&aconnector->mst_mgr);
 			/* check if there is new irq to be handled */
 			dret = drm_dp_dpcd_read(
 				&aconnector->dm_dp_aux.aux,
@@ -8959,10 +8961,17 @@ static void amdgpu_dm_atomic_commit_tail(struct drm_atomic_state *state)
 
 	drm_atomic_helper_cleanup_planes(dev, state);
 
-	/* return the stolen vga memory back to VRAM */
-	if (!adev->mman.keep_stolen_vga_memory)
-		amdgpu_bo_free_kernel(&adev->mman.stolen_vga_memory, NULL, NULL);
-	amdgpu_bo_free_kernel(&adev->mman.stolen_extended_memory, NULL, NULL);
+	/* Don't free the memory if we are hitting this as part of suspend.
+	 * This way we don't free any memory during suspend; see
+	 * amdgpu_bo_free_kernel().  The memory will be freed in the first
+	 * non-suspend modeset or when the driver is torn down.
+	 */
+	if (!adev->in_suspend) {
+		/* return the stolen vga memory back to VRAM */
+		if (!adev->mman.keep_stolen_vga_memory)
+			amdgpu_bo_free_kernel(&adev->mman.stolen_vga_memory, NULL, NULL);
+		amdgpu_bo_free_kernel(&adev->mman.stolen_extended_memory, NULL, NULL);
+	}
 
 	/*
 	 * Finally, drop a runtime PM reference for each newly disabled CRTC,
