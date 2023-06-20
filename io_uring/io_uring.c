@@ -424,8 +424,8 @@ static void io_prep_async_work(struct io_kiocb *req)
 	if (req->flags & REQ_F_FORCE_ASYNC)
 		req->work.flags |= IO_WQ_WORK_CONCURRENT;
 
-	if (req->file && !io_req_ffs_set(req))
-		req->flags |= io_file_get_flags(req->file) << REQ_F_SUPPORT_NOWAIT_BIT;
+	if (req->file && !(req->flags & REQ_F_FIXED_FILE))
+		req->flags |= io_file_get_flags(req->file);
 
 	if (req->file && (req->flags & REQ_F_ISREG)) {
 		bool should_hash = def->hash_reg_file;
@@ -1766,33 +1766,14 @@ static void io_iopoll_req_issued(struct io_kiocb *req, unsigned int issue_flags)
 	}
 }
 
-/*
- * If we tracked the file through the SCM inflight mechanism, we could support
- * any file. For now, just ensure that anything potentially problematic is done
- * inline.
- */
-static bool __io_file_supports_nowait(struct file *file, umode_t mode)
-{
-	/* any ->read/write should understand O_NONBLOCK */
-	if (file->f_flags & O_NONBLOCK)
-		return true;
-	return file->f_mode & FMODE_NOWAIT;
-}
-
-/*
- * If we tracked the file through the SCM inflight mechanism, we could support
- * any file. For now, just ensure that anything potentially problematic is done
- * inline.
- */
 unsigned int io_file_get_flags(struct file *file)
 {
-	umode_t mode = file_inode(file)->i_mode;
 	unsigned int res = 0;
 
-	if (S_ISREG(mode))
-		res |= FFS_ISREG;
-	if (__io_file_supports_nowait(file, mode))
-		res |= FFS_NOWAIT;
+	if (S_ISREG(file_inode(file)->i_mode))
+		res |= REQ_F_ISREG;
+	if ((file->f_flags & O_NONBLOCK) || (file->f_mode & FMODE_NOWAIT))
+		res |= REQ_F_SUPPORT_NOWAIT;
 	return res;
 }
 
@@ -2047,19 +2028,17 @@ inline struct file *io_file_get_fixed(struct io_kiocb *req, int fd,
 				      unsigned int issue_flags)
 {
 	struct io_ring_ctx *ctx = req->ctx;
+	struct io_fixed_file *slot;
 	struct file *file = NULL;
-	unsigned long file_ptr;
 
 	io_ring_submit_lock(ctx, issue_flags);
 
 	if (unlikely((unsigned int)fd >= ctx->nr_user_files))
 		goto out;
 	fd = array_index_nospec(fd, ctx->nr_user_files);
-	file_ptr = io_fixed_file_slot(&ctx->file_table, fd)->file_ptr;
-	file = (struct file *) (file_ptr & FFS_MASK);
-	file_ptr &= ~FFS_MASK;
-	/* mask in overlapping REQ_F and FFS bits */
-	req->flags |= (file_ptr << REQ_F_SUPPORT_NOWAIT_BIT);
+	slot = io_fixed_file_slot(&ctx->file_table, fd);
+	file = io_slot_file(slot);
+	req->flags |= io_slot_flags(slot);
 	io_req_set_rsrc_node(req, ctx, 0);
 out:
 	io_ring_submit_unlock(ctx, issue_flags);
