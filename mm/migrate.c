@@ -487,7 +487,7 @@ int folio_migrate_mapping(struct address_space *mapping,
 			__mod_lruvec_state(old_lruvec, NR_SHMEM, -nr);
 			__mod_lruvec_state(new_lruvec, NR_SHMEM, nr);
 
-			if (folio_test_transhuge(folio)) {
+			if (folio_test_pmd_mappable(folio)) {
 				__mod_lruvec_state(old_lruvec, NR_SHMEM_THPS, -nr);
 				__mod_lruvec_state(new_lruvec, NR_SHMEM_THPS, nr);
 			}
