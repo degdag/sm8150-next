@@ -160,6 +160,8 @@ int proc_pid_arch_status(struct seq_file *m, struct pid_namespace *ns,
 
 void arch_report_meminfo(struct seq_file *m);
 
+void arch_proc_pid_thread_features(struct seq_file *m, struct task_struct *task);
+
 #else /* CONFIG_PROC_FS */
 
 static inline void proc_root_init(void)

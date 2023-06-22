@@ -14,6 +14,8 @@
 #include <asm/processor-flags.h>
 #include <asm/pgtable.h>
 
+DECLARE_PER_CPU(u64, tlbstate_untag_mask);
+
 void __flush_tlb_all(void);
 
 #define TLB_FLUSH_ALL	-1UL
@@ -53,15 +55,6 @@ static inline void cr4_clear_bits(unsigned long mask)
 	cr4_clear_bits_irqsoff(mask);
 	local_irq_restore(flags);
 }
-
-#ifdef CONFIG_ADDRESS_MASKING
-DECLARE_PER_CPU(u64, tlbstate_untag_mask);
-
-static inline u64 current_untag_mask(void)
-{
-	return this_cpu_read(tlbstate_untag_mask);
-}
-#endif
 
 #ifndef MODULE
 /*
@@ -293,7 +286,8 @@ static inline bool pte_flags_need_flush(unsigned long oldflags,
 	const pteval_t flush_on_clear = _PAGE_DIRTY | _PAGE_PRESENT |
 					_PAGE_ACCESSED;
 	const pteval_t software_flags = _PAGE_SOFTW1 | _PAGE_SOFTW2 |
-					_PAGE_SOFTW3 | _PAGE_SOFTW4;
+					_PAGE_SOFTW3 | _PAGE_SOFTW4 |
+					_PAGE_SAVED_DIRTY;
 	const pteval_t flush_on_change = _PAGE_RW | _PAGE_USER | _PAGE_PWT |
 			  _PAGE_PCD | _PAGE_PSE | _PAGE_GLOBAL | _PAGE_PAT |
 			  _PAGE_PAT_LARGE | _PAGE_PKEY_BIT0 | _PAGE_PKEY_BIT1 |
