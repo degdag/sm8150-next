@@ -1418,7 +1418,7 @@ static int next_target(struct dm_target_spec *last, uint32_t next, const char *e
 	}
 
 	if (next % __alignof__(struct dm_target_spec)) {
-		DMERR("Next dm_target_spec (offset %u) is not %lu-byte aligned",
+		DMERR("Next dm_target_spec (offset %u) is not %zu-byte aligned",
 		      next, __alignof__(struct dm_target_spec));
 		return -EINVAL;
 	}
