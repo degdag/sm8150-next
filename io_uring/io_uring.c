@@ -146,8 +146,6 @@ static bool io_uring_try_cancel_requests(struct io_ring_ctx *ctx,
 					 struct task_struct *task,
 					 bool cancel_all);
 
-static void io_dismantle_req(struct io_kiocb *req);
-static void io_clean_op(struct io_kiocb *req);
 static void io_queue_sqe(struct io_kiocb *req);
 static void io_move_task_work_from_local(struct io_ring_ctx *ctx);
 static void __io_submit_flush_completions(struct io_ring_ctx *ctx);
@@ -366,6 +364,39 @@ static bool req_need_defer(struct io_kiocb *req, u32 seq)
 	}
 
 	return false;
+}
+
+static void io_clean_op(struct io_kiocb *req)
+{
+	if (req->flags & REQ_F_BUFFER_SELECTED) {
+		spin_lock(&req->ctx->completion_lock);
+		io_put_kbuf_comp(req);
+		spin_unlock(&req->ctx->completion_lock);
+	}
+
+	if (req->flags & REQ_F_NEED_CLEANUP) {
+		const struct io_cold_def *def = &io_cold_defs[req->opcode];
+
+		if (def->cleanup)
+			def->cleanup(req);
+	}
+	if ((req->flags & REQ_F_POLLED) && req->apoll) {
+		kfree(req->apoll->double_poll);
+		kfree(req->apoll);
+		req->apoll = NULL;
+	}
+	if (req->flags & REQ_F_INFLIGHT) {
+		struct io_uring_task *tctx = req->task->io_uring;
+
+		atomic_dec(&tctx->inflight_tracked);
+	}
+	if (req->flags & REQ_F_CREDS)
+		put_cred(req->creds);
+	if (req->flags & REQ_F_ASYNC_DATA) {
+		kfree(req->async_data);
+		req->async_data = NULL;
+	}
+	req->flags &= ~IO_REQ_CLEAN_FLAGS;
 }
 
 static inline void io_req_track_inflight(struct io_kiocb *req)
@@ -595,16 +626,9 @@ void __io_commit_cqring_flush(struct io_ring_ctx *ctx)
 }
 
 static inline void __io_cq_lock(struct io_ring_ctx *ctx)
-	__acquires(ctx->completion_lock)
 {
 	if (!ctx->task_complete)
 		spin_lock(&ctx->completion_lock);
-}
-
-static inline void __io_cq_unlock(struct io_ring_ctx *ctx)
-{
-	if (!ctx->task_complete)
-		spin_unlock(&ctx->completion_lock);
 }
 
 static inline void io_cq_lock(struct io_ring_ctx *ctx)
@@ -613,24 +637,7 @@ static inline void io_cq_lock(struct io_ring_ctx *ctx)
 	spin_lock(&ctx->completion_lock);
 }
 
-static inline void io_cq_unlock(struct io_ring_ctx *ctx)
-	__releases(ctx->completion_lock)
-{
-	spin_unlock(&ctx->completion_lock);
-}
-
-/* keep it inlined for io_submit_flush_completions() */
 static inline void __io_cq_unlock_post(struct io_ring_ctx *ctx)
-	__releases(ctx->completion_lock)
-{
-	io_commit_cqring(ctx);
-	__io_cq_unlock(ctx);
-	io_commit_cqring_flush(ctx);
-	io_cqring_wake(ctx);
-}
-
-static void __io_cq_unlock_post_flush(struct io_ring_ctx *ctx)
-	__releases(ctx->completion_lock)
 {
 	io_commit_cqring(ctx);
 
@@ -642,13 +649,13 @@ static void __io_cq_unlock_post_flush(struct io_ring_ctx *ctx)
 		 */
 		io_commit_cqring_flush(ctx);
 	} else {
-		__io_cq_unlock(ctx);
+		spin_unlock(&ctx->completion_lock);
 		io_commit_cqring_flush(ctx);
 		io_cqring_wake(ctx);
 	}
 }
 
-void io_cq_unlock_post(struct io_ring_ctx *ctx)
+static void io_cq_unlock_post(struct io_ring_ctx *ctx)
 	__releases(ctx->completion_lock)
 {
 	io_commit_cqring(ctx);
@@ -663,10 +670,10 @@ static void io_cqring_overflow_kill(struct io_ring_ctx *ctx)
 	struct io_overflow_cqe *ocqe;
 	LIST_HEAD(list);
 
-	io_cq_lock(ctx);
+	spin_lock(&ctx->completion_lock);
 	list_splice_init(&ctx->cq_overflow_list, &list);
 	clear_bit(IO_CHECK_CQ_OVERFLOW_BIT, &ctx->check_cq);
-	io_cq_unlock(ctx);
+	spin_unlock(&ctx->completion_lock);
 
 	while (!list_empty(&list)) {
 		ocqe = list_first_entry(&list, struct io_overflow_cqe, list);
@@ -723,29 +730,29 @@ static void io_cqring_overflow_flush(struct io_ring_ctx *ctx)
 }
 
 /* can be called by any task */
-static void io_put_task_remote(struct task_struct *task, int nr)
+static void io_put_task_remote(struct task_struct *task)
 {
 	struct io_uring_task *tctx = task->io_uring;
 
-	percpu_counter_sub(&tctx->inflight, nr);
+	percpu_counter_sub(&tctx->inflight, 1);
 	if (unlikely(atomic_read(&tctx->in_cancel)))
 		wake_up(&tctx->wait);
-	put_task_struct_many(task, nr);
+	put_task_struct(task);
 }
 
 /* used by a task to put its own references */
-static void io_put_task_local(struct task_struct *task, int nr)
+static void io_put_task_local(struct task_struct *task)
 {
-	task->io_uring->cached_refs += nr;
+	task->io_uring->cached_refs++;
 }
 
 /* must to be called somewhat shortly after putting a request */
-static inline void io_put_task(struct task_struct *task, int nr)
+static inline void io_put_task(struct task_struct *task)
 {
 	if (likely(task == current))
-		io_put_task_local(task, nr);
+		io_put_task_local(task);
 	else
-		io_put_task_remote(task, nr);
+		io_put_task_remote(task);
 }
 
 void io_task_refs_refill(struct io_uring_task *tctx)
@@ -991,14 +998,18 @@ static void __io_req_complete_post(struct io_kiocb *req, unsigned issue_flags)
 			}
 		}
 		io_put_kbuf_comp(req);
-		io_dismantle_req(req);
+		if (unlikely(req->flags & IO_REQ_CLEAN_FLAGS))
+			io_clean_op(req);
+		if (!(req->flags & REQ_F_FIXED_FILE))
+			io_put_file(req->file);
+
 		rsrc_node = req->rsrc_node;
 		/*
 		 * Selected buffer deallocation in io_clean_op() assumes that
 		 * we don't hold ->completion_lock. Clean them here to avoid
 		 * deadlocks.
 		 */
-		io_put_task_remote(req->task, 1);
+		io_put_task_remote(req->task);
 		wq_list_add_head(&req->comp_list, &ctx->locked_free_list);
 		ctx->locked_free_nr++;
 	}
@@ -1111,36 +1122,13 @@ __cold bool __io_alloc_req_refill(struct io_ring_ctx *ctx)
 	return true;
 }
 
-static inline void io_dismantle_req(struct io_kiocb *req)
-{
-	unsigned int flags = req->flags;
-
-	if (unlikely(flags & IO_REQ_CLEAN_FLAGS))
-		io_clean_op(req);
-	if (!(flags & REQ_F_FIXED_FILE))
-		io_put_file(req->file);
-}
-
-static __cold void io_free_req_tw(struct io_kiocb *req, struct io_tw_state *ts)
-{
-	struct io_ring_ctx *ctx = req->ctx;
-
-	if (req->rsrc_node) {
-		io_tw_lock(ctx, ts);
-		io_put_rsrc_node(ctx, req->rsrc_node);
-	}
-	io_dismantle_req(req);
-	io_put_task_remote(req->task, 1);
-
-	spin_lock(&ctx->completion_lock);
-	wq_list_add_head(&req->comp_list, &ctx->locked_free_list);
-	ctx->locked_free_nr++;
-	spin_unlock(&ctx->completion_lock);
-}
-
 __cold void io_free_req(struct io_kiocb *req)
 {
-	req->io_task_work.func = io_free_req_tw;
+	/* refs were already put, restore them for io_req_task_complete() */
+	req->flags &= ~REQ_F_REFCOUNT;
+	/* we only want to free it, don't post CQEs */
+	req->flags |= REQ_F_CQE_SKIP;
+	req->io_task_work.func = io_req_task_complete;
 	io_req_task_work_add(req);
 }
 
@@ -1305,7 +1293,7 @@ static __cold void io_fallback_tw(struct io_uring_task *tctx)
 	}
 }
 
-static void io_req_local_work_add(struct io_kiocb *req, unsigned flags)
+static inline void io_req_local_work_add(struct io_kiocb *req, unsigned flags)
 {
 	struct io_ring_ctx *ctx = req->ctx;
 	unsigned nr_wait, nr_tw, nr_tw_prev;
@@ -1356,18 +1344,10 @@ static void io_req_local_work_add(struct io_kiocb *req, unsigned flags)
 	wake_up_state(ctx->submitter_task, TASK_INTERRUPTIBLE);
 }
 
-void __io_req_task_work_add(struct io_kiocb *req, unsigned flags)
+static void io_req_normal_work_add(struct io_kiocb *req)
 {
 	struct io_uring_task *tctx = req->task->io_uring;
 	struct io_ring_ctx *ctx = req->ctx;
-
-	if (!(flags & IOU_F_TWQ_FORCE_NORMAL) &&
-	    (ctx->flags & IORING_SETUP_DEFER_TASKRUN)) {
-		rcu_read_lock();
-		io_req_local_work_add(req, flags);
-		rcu_read_unlock();
-		return;
-	}
 
 	/* task_work already pending, we're done */
 	if (!llist_add(&req->io_task_work.node, &tctx->task_list))
@@ -1382,6 +1362,17 @@ void __io_req_task_work_add(struct io_kiocb *req, unsigned flags)
 	io_fallback_tw(tctx);
 }
 
+void __io_req_task_work_add(struct io_kiocb *req, unsigned flags)
+{
+	if (req->ctx->flags & IORING_SETUP_DEFER_TASKRUN) {
+		rcu_read_lock();
+		io_req_local_work_add(req, flags);
+		rcu_read_unlock();
+	} else {
+		io_req_normal_work_add(req);
+	}
+}
+
 static void __cold io_move_task_work_from_local(struct io_ring_ctx *ctx)
 {
 	struct llist_node *node;
@@ -1392,7 +1383,7 @@ static void __cold io_move_task_work_from_local(struct io_ring_ctx *ctx)
 						    io_task_work.node);
 
 		node = node->next;
-		__io_req_task_work_add(req, IOU_F_TWQ_FORCE_NORMAL);
+		io_req_normal_work_add(req);
 	}
 }
 
@@ -1506,9 +1497,6 @@ void io_queue_next(struct io_kiocb *req)
 void io_free_batch_list(struct io_ring_ctx *ctx, struct io_wq_work_node *node)
 	__must_hold(&ctx->uring_lock)
 {
-	struct task_struct *task = NULL;
-	int task_refs = 0;
-
 	do {
 		struct io_kiocb *req = container_of(node, struct io_kiocb,
 						    comp_list);
@@ -1538,19 +1526,10 @@ void io_free_batch_list(struct io_ring_ctx *ctx, struct io_wq_work_node *node)
 
 		io_req_put_rsrc_locked(req, ctx);
 
-		if (req->task != task) {
-			if (task)
-				io_put_task(task, task_refs);
-			task = req->task;
-			task_refs = 0;
-		}
-		task_refs++;
+		io_put_task(req->task);
 		node = req->comp_list.next;
 		io_req_add_to_cache(req, ctx);
 	} while (node);
-
-	if (task)
-		io_put_task(task, task_refs);
 }
 
 static void __io_submit_flush_completions(struct io_ring_ctx *ctx)
@@ -1578,28 +1557,12 @@ static void __io_submit_flush_completions(struct io_ring_ctx *ctx)
 			}
 		}
 	}
-	__io_cq_unlock_post_flush(ctx);
+	__io_cq_unlock_post(ctx);
 
 	if (!wq_list_empty(&ctx->submit_state.compl_reqs)) {
 		io_free_batch_list(ctx, state->compl_reqs.first);
 		INIT_WQ_LIST(&state->compl_reqs);
 	}
-}
-
-/*
- * Drop reference to request, return next in chain (if there is one) if this
- * was the last reference to this request.
- */
-static inline struct io_kiocb *io_put_req_find_next(struct io_kiocb *req)
-{
-	struct io_kiocb *nxt = NULL;
-
-	if (req_ref_put_and_test(req)) {
-		if (unlikely(req->flags & IO_REQ_LINK_FLAGS))
-			nxt = io_req_find_next(req);
-		io_free_req(req);
-	}
-	return nxt;
 }
 
 static unsigned io_cqring_events(struct io_ring_ctx *ctx)
@@ -1859,39 +1822,6 @@ queue:
 	spin_unlock(&ctx->completion_lock);
 }
 
-static void io_clean_op(struct io_kiocb *req)
-{
-	if (req->flags & REQ_F_BUFFER_SELECTED) {
-		spin_lock(&req->ctx->completion_lock);
-		io_put_kbuf_comp(req);
-		spin_unlock(&req->ctx->completion_lock);
-	}
-
-	if (req->flags & REQ_F_NEED_CLEANUP) {
-		const struct io_cold_def *def = &io_cold_defs[req->opcode];
-
-		if (def->cleanup)
-			def->cleanup(req);
-	}
-	if ((req->flags & REQ_F_POLLED) && req->apoll) {
-		kfree(req->apoll->double_poll);
-		kfree(req->apoll);
-		req->apoll = NULL;
-	}
-	if (req->flags & REQ_F_INFLIGHT) {
-		struct io_uring_task *tctx = req->task->io_uring;
-
-		atomic_dec(&tctx->inflight_tracked);
-	}
-	if (req->flags & REQ_F_CREDS)
-		put_cred(req->creds);
-	if (req->flags & REQ_F_ASYNC_DATA) {
-		kfree(req->async_data);
-		req->async_data = NULL;
-	}
-	req->flags &= ~IO_REQ_CLEAN_FLAGS;
-}
-
 static bool io_assign_file(struct io_kiocb *req, const struct io_issue_def *def,
 			   unsigned int issue_flags)
 {
@@ -1954,9 +1884,14 @@ int io_poll_issue(struct io_kiocb *req, struct io_tw_state *ts)
 struct io_wq_work *io_wq_free_work(struct io_wq_work *work)
 {
 	struct io_kiocb *req = container_of(work, struct io_kiocb, work);
+	struct io_kiocb *nxt = NULL;
 
-	req = io_put_req_find_next(req);
-	return req ? &req->work : NULL;
+	if (req_ref_put_and_test(req)) {
+		if (req->flags & IO_REQ_LINK_FLAGS)
+			nxt = io_req_find_next(req);
+		io_free_req(req);
+	}
+	return nxt ? &nxt->work : NULL;
 }
 
 void io_wq_submit_work(struct io_wq_work *work)
