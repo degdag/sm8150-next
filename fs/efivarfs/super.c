@@ -152,9 +152,12 @@ static int efivarfs_callback(efi_char16_t *name16, efi_guid_t vendor,
 	int len;
 	int err = -ENOMEM;
 	bool is_removable = false;
+	umode_t mode = S_IRUGO | S_IWUSR;
 
-	if (guid_equal(&vendor, &LINUX_EFI_RANDOM_SEED_TABLE_GUID))
-		return 0;
+	if (guid_equal(&vendor, &LINUX_EFI_RANDOM_SEED_TABLE_GUID)) {
+		mode = S_IRUSR | S_IWUSR;
+		is_removable = true;
+	}
 
 	entry = kzalloc(sizeof(*entry), GFP_KERNEL);
 	if (!entry)
@@ -184,7 +187,7 @@ static int efivarfs_callback(efi_char16_t *name16, efi_guid_t vendor,
 	/* replace invalid slashes like kobject_set_name_vargs does for /sys/firmware/efi/vars. */
 	strreplace(name, '/', '!');
 
-	inode = efivarfs_get_inode(sb, d_inode(root), S_IFREG | 0644, 0,
+	inode = efivarfs_get_inode(sb, d_inode(root), S_IFREG | mode, 0,
 				   is_removable);
 	if (!inode)
 		goto fail_name;
