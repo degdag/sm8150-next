@@ -591,6 +591,7 @@ int gfs2_quota_hold(struct gfs2_inode *ip, kuid_t uid, kgid_t gid)
 	if (gfs2_assert_warn(sdp, !ip->i_qadata->qa_qd_num) ||
 	    gfs2_assert_warn(sdp, !test_bit(GIF_QD_LOCKED, &ip->i_flags))) {
 		error = -EIO;
+		gfs2_qa_put(ip);
 		goto out;
 	}
 
@@ -763,10 +764,10 @@ static int gfs2_write_buf_to_page(struct gfs2_inode *ip, unsigned long index,
 	}
 
 	/* Write to the page, now that we have setup the buffer(s) */
-	kaddr = kmap_atomic(page);
+	kaddr = kmap_local_page(page);
 	memcpy(kaddr + off, buf, bytes);
+	kunmap_local(kaddr);
 	flush_dcache_page(page);
-	kunmap_atomic(kaddr);
 	unlock_page(page);
 	put_page(page);
 
