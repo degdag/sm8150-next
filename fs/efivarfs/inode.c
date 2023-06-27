@@ -92,8 +92,8 @@ static int efivarfs_create(struct mnt_idmap *idmap, struct inode *dir,
 	if (err)
 		goto out;
 	if (guid_equal(&var->var.VendorGuid, &LINUX_EFI_RANDOM_SEED_TABLE_GUID)) {
-		err = -EPERM;
-		goto out;
+		mode &= S_IFMT | S_IRUSR | S_IWUSR;
+		is_removable = true;
 	}
 
 	if (efivar_variable_is_removable(var->var.VendorGuid,
