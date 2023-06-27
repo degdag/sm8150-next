@@ -1590,7 +1590,7 @@ config ARM64_TAGGED_ADDR_ABI
 	  When this option is enabled, user applications can opt in to a
 	  relaxed ABI via prctl() allowing tagged addresses to be passed
 	  to system calls as pointer arguments. For details, see
-	  Documentation/arm64/tagged-address-abi.rst.
+	  Documentation/arch/arm64/tagged-address-abi.rst.
 
 menuconfig COMPAT
 	bool "Kernel support for 32-bit EL0"
@@ -1624,7 +1624,7 @@ config KUSER_HELPERS
 	  the system. This permits binaries to be run on ARMv4 through
 	  to ARMv8 without modification.
 
-	  See Documentation/arm/kernel_user_helpers.rst for details.
+	  See Documentation/arch/arm/kernel_user_helpers.rst for details.
 
 	  However, the fixed address nature of these helpers can be used
 	  by ROP (return orientated programming) authors when creating
@@ -2052,7 +2052,7 @@ config ARM64_MTE
 	  explicitly opt in. The mechanism for the userspace is
 	  described in:
 
-	  Documentation/arm64/memory-tagging-extension.rst.
+	  Documentation/arch/arm64/memory-tagging-extension.rst.
 
 endmenu # "ARMv8.5 architectural features"
 
