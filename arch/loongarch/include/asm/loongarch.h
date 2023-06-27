@@ -1130,7 +1130,7 @@ __asm__(".macro	parse_r var r\n\t"
 
 #ifndef __ASSEMBLY__
 
-static inline u64 drdtime(void)
+static __always_inline u64 drdtime(void)
 {
 	int rID = 0;
 	u64 val = 0;
