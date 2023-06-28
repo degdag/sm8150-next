@@ -45,7 +45,7 @@ struct proc_dir_entry * proc_runway_root __read_mostly = NULL;
 struct proc_dir_entry * proc_gsc_root __read_mostly = NULL;
 struct proc_dir_entry * proc_mckinley_root __read_mostly = NULL;
 
-void __init setup_cmdline(char **cmdline_p)
+static void __init setup_cmdline(char **cmdline_p)
 {
 	extern unsigned int boot_args[];
 	char *p;
@@ -86,7 +86,7 @@ void __init setup_cmdline(char **cmdline_p)
 }
 
 #ifdef CONFIG_PA11
-void __init dma_ops_init(void)
+static void __init dma_ops_init(void)
 {
 	switch (boot_cpu_data.cpu_type) {
 	case pcx:
@@ -105,8 +105,6 @@ void __init dma_ops_init(void)
 	}
 }
 #endif
-
-extern void collect_boot_cpu_data(void);
 
 void __init setup_arch(char **cmdline_p)
 {
@@ -167,10 +165,7 @@ void __init setup_arch(char **cmdline_p)
 
 /*
  * Display CPU info for all CPUs.
- * for parisc this is in processor.c
  */
-extern int show_cpuinfo (struct seq_file *m, void *v);
-
 static void *
 c_start (struct seq_file *m, loff_t *pos)
 {
@@ -391,8 +386,6 @@ arch_initcall(parisc_init);
 
 void __init start_parisc(void)
 {
-	extern void early_trap_init(void);
-
 	int ret, cpunum;
 	struct pdc_coproc_cfg coproc_cfg;
 
