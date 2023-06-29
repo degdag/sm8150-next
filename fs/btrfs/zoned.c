@@ -805,6 +805,11 @@ int btrfs_check_mountopts_zoned(struct btrfs_fs_info *info)
 		return -EINVAL;
 	}
 
+	if (btrfs_test_opt(info, DISCARD_ASYNC)) {
+		btrfs_info(info, "zoned: async discard ignored and disabled for zoned mode");
+		btrfs_clear_opt(info->mount_opt, DISCARD_ASYNC);
+	}
+
 	return 0;
 }
 
