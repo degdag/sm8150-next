@@ -22,7 +22,7 @@
 #include <asm/irq.h>
 #include <asm/debug.h>
 #include <asm/timex.h>
-#include <asm-generic/io.h>
+#include <linux/io.h>
 
 /* Minimum number of sample-data-block-tables:
  * At least one table is required for the sampling buffer structure.
@@ -1865,7 +1865,7 @@ static void cpumsf_pmu_read(struct perf_event *event)
 	/* Nothing to do ... updates are interrupt-driven */
 }
 
-/* Check if the new sampling period/freqeuncy is appropriate.
+/* Check if the new sampling period/frequency is appropriate.
  *
  * Return non-zero on error and zero on passed checks.
  */
