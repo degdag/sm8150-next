@@ -2180,7 +2180,8 @@ int __block_write_begin(struct page *page, loff_t pos, unsigned len,
 }
 EXPORT_SYMBOL(__block_write_begin);
 
-static void __block_commit_write(struct folio *folio, size_t from, size_t to)
+static int __block_commit_write(struct inode *inode, struct folio *folio,
+		size_t from, size_t to)
 {
 	size_t block_start, block_end;
 	bool partial = false;
@@ -2215,6 +2216,7 @@ static void __block_commit_write(struct folio *folio, size_t from, size_t to)
 	 */
 	if (!partial)
 		folio_mark_uptodate(folio);
+	return 0;
 }
 
 /*
@@ -2251,6 +2253,7 @@ int block_write_end(struct file *file, struct address_space *mapping,
 			struct page *page, void *fsdata)
 {
 	struct folio *folio = page_folio(page);
+	struct inode *inode = mapping->host;
 	size_t start = pos - folio_pos(folio);
 
 	if (unlikely(copied < len)) {
@@ -2274,7 +2277,7 @@ int block_write_end(struct file *file, struct address_space *mapping,
 	flush_dcache_folio(folio);
 
 	/* This could be a short (even 0-length) commit */
-	__block_commit_write(folio, start, start + copied);
+	__block_commit_write(inode, folio, start, start + copied);
 
 	return copied;
 }
@@ -2595,10 +2598,12 @@ int cont_write_begin(struct file *file, struct address_space *mapping,
 }
 EXPORT_SYMBOL(cont_write_begin);
 
-void block_commit_write(struct page *page, unsigned from, unsigned to)
+int block_commit_write(struct page *page, unsigned from, unsigned to)
 {
 	struct folio *folio = page_folio(page);
-	__block_commit_write(folio, from, to);
+	struct inode *inode = folio->mapping->host;
+	__block_commit_write(inode, folio, from, to);
+	return 0;
 }
 EXPORT_SYMBOL(block_commit_write);
 
@@ -2644,11 +2649,11 @@ int block_page_mkwrite(struct vm_area_struct *vma, struct vm_fault *vmf,
 		end = size - folio_pos(folio);
 
 	ret = __block_write_begin_int(folio, 0, end, get_block, NULL);
-	if (unlikely(ret))
+	if (!ret)
+		ret = __block_commit_write(inode, folio, 0, end);
+
+	if (unlikely(ret < 0))
 		goto out_unlock;
-
-	__block_commit_write(folio, 0, end);
-
 	folio_mark_dirty(folio);
 	folio_wait_stable(folio);
 	return 0;

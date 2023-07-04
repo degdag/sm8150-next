@@ -1144,9 +1144,6 @@ config KMAP_LOCAL_NON_LINEAR_PTE_ARRAY
 config IO_MAPPING
 	bool
 
-config MEMFD_CREATE
-	bool "Enable memfd_create() system call" if EXPERT
-
 config SECRETMEM
 	default y
 	bool "Enable memfd_secret() system call" if EXPERT
@@ -1227,7 +1224,7 @@ config ARCH_SUPPORTS_PER_VMA_LOCK
        def_bool n
 
 config PER_VMA_LOCK
-	bool "Enable per-vma locking during page fault handling."
+	def_bool y
 	depends on ARCH_SUPPORTS_PER_VMA_LOCK && MMU && SMP
 	help
 	  Allow per-vma locking during page fault handling.

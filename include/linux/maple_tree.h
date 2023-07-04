@@ -662,11 +662,10 @@ void *mt_next(struct maple_tree *mt, unsigned long index, unsigned long max);
  * mt_for_each - Iterate over each entry starting at index until max.
  * @__tree: The Maple Tree
  * @__entry: The current entry
- * @__index: The index to start the search from. Subsequently used as iterator.
+ * @__index: The index to update to track the location in the tree
  * @__max: The maximum limit for @index
  *
- * This iterator skips all entries, which resolve to a NULL pointer,
- * e.g. entries which has been reserved with XA_ZERO_ENTRY.
+ * Note: Will not return the zero entry.
  */
 #define mt_for_each(__tree, __entry, __index, __max) \
 	for (__entry = mt_find(__tree, &(__index), __max); \

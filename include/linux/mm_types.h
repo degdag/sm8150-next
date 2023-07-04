@@ -784,7 +784,7 @@ struct mm_struct {
 #ifdef CONFIG_KSM
 		/*
 		 * Represent how many pages of this process are involved in KSM
-		 * merging (not including ksm_zero_pages).
+		 * merging.
 		 */
 		unsigned long ksm_merging_pages;
 		/*
@@ -792,12 +792,7 @@ struct mm_struct {
 		 * including merged and not merged.
 		 */
 		unsigned long ksm_rmap_items;
-		/*
-		 * Represent how many empty pages are merged with kernel zero
-		 * pages when enabling KSM use_zero_pages.
-		 */
-		unsigned long ksm_zero_pages;
-#endif /* CONFIG_KSM */
+#endif
 #ifdef CONFIG_LRU_GEN
 		struct {
 			/* this mm_struct is on lru_gen_mm_list */
@@ -1082,8 +1077,7 @@ enum vm_fault_reason {
 	{ VM_FAULT_RETRY,               "RETRY" },	\
 	{ VM_FAULT_FALLBACK,            "FALLBACK" },	\
 	{ VM_FAULT_DONE_COW,            "DONE_COW" },	\
-	{ VM_FAULT_NEEDDSYNC,           "NEEDDSYNC" },	\
-	{ VM_FAULT_COMPLETED,           "COMPLETED" }
+	{ VM_FAULT_NEEDDSYNC,           "NEEDDSYNC" }
 
 struct vm_special_mapping {
 	const char *name;	/* The name, e.g. "[vdso]". */

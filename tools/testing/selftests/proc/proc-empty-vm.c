@@ -1,4 +1,3 @@
-#if defined __amd64__ || defined __i386__
 /*
  * Copyright (c) 2022 Alexey Dobriyan <adobriyan@gmail.com>
  *
@@ -37,10 +36,6 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
-
-#ifdef __amd64__
-#define TEST_VSYSCALL
-#endif
 
 /*
  * 0: vsyscall VMA doesn't exist	vsyscall=none
@@ -124,7 +119,6 @@ static void sigaction_SIGSEGV(int _, siginfo_t *__, void *___)
 	_exit(EXIT_FAILURE);
 }
 
-#ifdef TEST_VSYSCALL
 static void sigaction_SIGSEGV_vsyscall(int _, siginfo_t *__, void *___)
 {
 	_exit(g_vsyscall);
@@ -176,7 +170,6 @@ static void vsyscall(void)
 		exit(1);
 	}
 }
-#endif
 
 static int test_proc_pid_maps(pid_t pid)
 {
@@ -306,9 +299,7 @@ int main(void)
 {
 	int rv = EXIT_SUCCESS;
 
-#ifdef TEST_VSYSCALL
 	vsyscall();
-#endif
 
 	switch (g_vsyscall) {
 	case 0:
@@ -355,14 +346,6 @@ int main(void)
 
 #ifdef __amd64__
 		munmap(NULL, ((size_t)1 << 47) - 4096);
-#elif defined __i386__
-		{
-			size_t len;
-
-			for (len = -4096;; len -= 4096) {
-				munmap(NULL, len);
-			}
-		}
 #else
 #error "implement 'unmap everything'"
 #endif
@@ -403,9 +386,3 @@ int main(void)
 
 	return rv;
 }
-#else
-int main(void)
-{
-	return 4;
-}
-#endif

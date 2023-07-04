@@ -4167,35 +4167,23 @@ static inline bool mas_wr_slot_store(struct ma_wr_state *wr_mas)
 {
 	struct ma_state *mas = wr_mas->mas;
 	unsigned char offset = mas->offset;
-	void __rcu **slots = wr_mas->slots;
 	bool gap = false;
 
-	gap |= !mt_slot_locked(mas->tree, slots, offset);
-	gap |= !mt_slot_locked(mas->tree, slots, offset + 1);
-
-	if (wr_mas->offset_end - offset == 1) {
-		if (mas->index == wr_mas->r_min) {
-			/* Overwriting the range and a part of the next one */
-			rcu_assign_pointer(slots[offset], wr_mas->entry);
-			wr_mas->pivots[offset] = mas->last;
-		} else {
-			/* Overwriting a part of the range and the next one */
-			rcu_assign_pointer(slots[offset + 1], wr_mas->entry);
-			wr_mas->pivots[offset] = mas->index - 1;
-			mas->offset++; /* Keep mas accurate. */
-		}
-	} else if (!mt_in_rcu(mas->tree)) {
-		/*
-		 * Expand the range, only partially overwriting the previous and
-		 * next ranges
-		 */
-		gap |= !mt_slot_locked(mas->tree, slots, offset + 2);
-		rcu_assign_pointer(slots[offset + 1], wr_mas->entry);
-		wr_mas->pivots[offset] = mas->index - 1;
-		wr_mas->pivots[offset + 1] = mas->last;
-		mas->offset++; /* Keep mas accurate. */
-	} else {
+	if (wr_mas->offset_end - offset != 1)
 		return false;
+
+	gap |= !mt_slot_locked(mas->tree, wr_mas->slots, offset);
+	gap |= !mt_slot_locked(mas->tree, wr_mas->slots, offset + 1);
+
+	if (mas->index == wr_mas->r_min) {
+		/* Overwriting the range and over a part of the next range. */
+		rcu_assign_pointer(wr_mas->slots[offset], wr_mas->entry);
+		wr_mas->pivots[offset] = mas->last;
+	} else {
+		/* Overwriting a part of the range and over the next range */
+		rcu_assign_pointer(wr_mas->slots[offset + 1], wr_mas->entry);
+		wr_mas->pivots[offset] = mas->index - 1;
+		mas->offset++; /* Keep mas accurate. */
 	}
 
 	trace_ma_write(__func__, mas, 0, wr_mas->entry);
@@ -4278,10 +4266,10 @@ static inline unsigned char mas_wr_new_end(struct ma_wr_state *wr_mas)
  *
  * Return: True if appended, false otherwise
  */
-static inline bool mas_wr_append(struct ma_wr_state *wr_mas,
-				 unsigned char new_end)
+static inline bool mas_wr_append(struct ma_wr_state *wr_mas)
 {
 	unsigned char end = wr_mas->node_end;
+	unsigned char new_end = end + 1;
 	struct ma_state *mas = wr_mas->mas;
 	unsigned char node_pivots = mt_pivots[wr_mas->type];
 
@@ -4293,27 +4281,16 @@ static inline bool mas_wr_append(struct ma_wr_state *wr_mas,
 		ma_set_meta(wr_mas->node, maple_leaf_64, 0, new_end);
 	}
 
-	if (new_end == wr_mas->node_end + 1) {
-		if (mas->last == wr_mas->r_max) {
-			/* Append to end of range */
-			rcu_assign_pointer(wr_mas->slots[new_end],
-					   wr_mas->entry);
-			wr_mas->pivots[end] = mas->index - 1;
-			mas->offset = new_end;
-		} else {
-			/* Append to start of range */
-			rcu_assign_pointer(wr_mas->slots[new_end],
-					   wr_mas->content);
-			wr_mas->pivots[end] = mas->last;
-			rcu_assign_pointer(wr_mas->slots[end], wr_mas->entry);
-		}
-	} else {
-		/* Append to the range without touching any boundaries. */
-		rcu_assign_pointer(wr_mas->slots[new_end], wr_mas->content);
-		wr_mas->pivots[end + 1] = mas->last;
-		rcu_assign_pointer(wr_mas->slots[end + 1], wr_mas->entry);
+	if (mas->last == wr_mas->r_max) {
+		/* Append to end of range */
+		rcu_assign_pointer(wr_mas->slots[new_end], wr_mas->entry);
 		wr_mas->pivots[end] = mas->index - 1;
-		mas->offset = end + 1;
+		mas->offset = new_end;
+	} else {
+		/* Append to start of range */
+		rcu_assign_pointer(wr_mas->slots[new_end], wr_mas->content);
+		wr_mas->pivots[end] = mas->last;
+		rcu_assign_pointer(wr_mas->slots[end], wr_mas->entry);
 	}
 
 	if (!wr_mas->content || !wr_mas->entry)
@@ -4360,7 +4337,7 @@ static inline void mas_wr_modify(struct ma_wr_state *wr_mas)
 		goto slow_path;
 
 	/* Attempt to append */
-	if (mas_wr_append(wr_mas, new_end))
+	if (new_end == wr_mas->node_end + 1 && mas_wr_append(wr_mas))
 		return;
 
 	if (new_end == wr_mas->node_end && mas_wr_slot_store(wr_mas))
@@ -5772,11 +5749,7 @@ EXPORT_SYMBOL_GPL(mas_next_range);
  * @index: The start index
  * @max: The maximum index to check
  *
- * Takes RCU read lock internally to protect the search, which does not
- * protect the returned pointer after dropping RCU read lock.
- * See also: Documentation/core-api/maple_tree.rst
- *
- * Return: The entry higher than @index or %NULL if nothing is found.
+ * Return: The entry at @index or higher, or %NULL if nothing is found.
  */
 void *mt_next(struct maple_tree *mt, unsigned long index, unsigned long max)
 {
@@ -5882,11 +5855,7 @@ EXPORT_SYMBOL_GPL(mas_prev_range);
  * @index: The start index
  * @min: The minimum index to check
  *
- * Takes RCU read lock internally to protect the search, which does not
- * protect the returned pointer after dropping RCU read lock.
- * See also: Documentation/core-api/maple_tree.rst
- *
- * Return: The entry before @index or %NULL if nothing is found.
+ * Return: The entry at @index or lower, or %NULL if nothing is found.
  */
 void *mt_prev(struct maple_tree *mt, unsigned long index, unsigned long min)
 {
@@ -6498,15 +6467,9 @@ EXPORT_SYMBOL(mtree_destroy);
  * mt_find() - Search from the start up until an entry is found.
  * @mt: The maple tree
  * @index: Pointer which contains the start location of the search
- * @max: The maximum value of the search range
+ * @max: The maximum value to check
  *
- * Takes RCU read lock internally to protect the search, which does not
- * protect the returned pointer after dropping RCU read lock.
- * See also: Documentation/core-api/maple_tree.rst
- *
- * In case that an entry is found @index is updated to point to the next
- * possible entry independent whether the found entry is occupying a
- * single index or a range if indices.
+ * Handles locking.  @index will be incremented to one beyond the range.
  *
  * Return: The entry at or after the @index or %NULL
  */
@@ -6564,9 +6527,7 @@ EXPORT_SYMBOL(mt_find);
  * @index: Pointer which contains the start location of the search
  * @max: The maximum value to check
  *
- * Same as mt_find() except that it checks @index for 0 before
- * searching. If @index == 0, the search is aborted. This covers a wrap
- * around of @index to 0 in an iterator loop.
+ * Handles locking, detects wrapping on index == 0
  *
  * Return: The entry at or after the @index or %NULL
  */

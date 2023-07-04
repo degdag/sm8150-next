@@ -1084,7 +1084,7 @@ cmds(struct pt_regs *excp)
 				memzcan();
 				break;
 			case 'i':
-				show_mem();
+				show_mem(0, NULL);
 				break;
 			default:
 				termch = cmd;

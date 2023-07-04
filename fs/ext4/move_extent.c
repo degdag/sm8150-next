@@ -340,8 +340,10 @@ again:
 			ext4_double_up_write_data_sem(orig_inode, donor_inode);
 			goto data_copy;
 		}
-		if (!filemap_release_folio(folio[0], 0) ||
-		    !filemap_release_folio(folio[1], 0)) {
+		if ((folio_has_private(folio[0]) &&
+		     !filemap_release_folio(folio[0], 0)) ||
+		    (folio_has_private(folio[1]) &&
+		     !filemap_release_folio(folio[1], 0))) {
 			*err = -EBUSY;
 			goto drop_data_sem;
 		}
@@ -360,8 +362,10 @@ data_copy:
 
 	/* At this point all buffers in range are uptodate, old mapping layout
 	 * is no longer required, try to drop it now. */
-	if (!filemap_release_folio(folio[0], 0) ||
-	    !filemap_release_folio(folio[1], 0)) {
+	if ((folio_has_private(folio[0]) &&
+		!filemap_release_folio(folio[0], 0)) ||
+	    (folio_has_private(folio[1]) &&
+		!filemap_release_folio(folio[1], 0))) {
 		*err = -EBUSY;
 		goto unlock_folios;
 	}
@@ -388,11 +392,14 @@ data_copy:
 	for (i = 0; i < block_len_in_page; i++) {
 		*err = ext4_get_block(orig_inode, orig_blk_offset + i, bh, 0);
 		if (*err < 0)
-			goto repair_branches;
+			break;
 		bh = bh->b_this_page;
 	}
+	if (!*err)
+		*err = block_commit_write(&folio[0]->page, from, from + replaced_size);
 
-	block_commit_write(&folio[0]->page, from, from + replaced_size);
+	if (unlikely(*err < 0))
+		goto repair_branches;
 
 	/* Even in case of data=writeback it is reasonable to pin
 	 * inode to transaction, to prevent unexpected data loss */

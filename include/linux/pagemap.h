@@ -203,7 +203,6 @@ enum mapping_flags {
 	/* writeback related tags are not used */
 	AS_NO_WRITEBACK_TAGS = 5,
 	AS_LARGE_FOLIO_SUPPORT = 6,
-	AS_RELEASE_ALWAYS,	/* Call ->release_folio(), even if no private data */
 };
 
 /**
@@ -272,21 +271,6 @@ static inline void mapping_set_no_writeback_tags(struct address_space *mapping)
 static inline int mapping_use_writeback_tags(struct address_space *mapping)
 {
 	return !test_bit(AS_NO_WRITEBACK_TAGS, &mapping->flags);
-}
-
-static inline bool mapping_release_always(const struct address_space *mapping)
-{
-	return test_bit(AS_RELEASE_ALWAYS, &mapping->flags);
-}
-
-static inline void mapping_set_release_always(struct address_space *mapping)
-{
-	set_bit(AS_RELEASE_ALWAYS, &mapping->flags);
-}
-
-static inline void mapping_clear_release_always(struct address_space *mapping)
-{
-	clear_bit(AS_RELEASE_ALWAYS, &mapping->flags);
 }
 
 static inline gfp_t mapping_gfp_mask(struct address_space * mapping)
@@ -916,7 +900,8 @@ static inline bool wake_page_match(struct wait_page_queue *wait_page,
 
 void __folio_lock(struct folio *folio);
 int __folio_lock_killable(struct folio *folio);
-vm_fault_t __folio_lock_or_retry(struct folio *folio, struct vm_fault *vmf);
+bool __folio_lock_or_retry(struct folio *folio, struct mm_struct *mm,
+				unsigned int flags);
 void unlock_page(struct page *page);
 void folio_unlock(struct folio *folio);
 
@@ -1020,13 +1005,11 @@ static inline int folio_lock_killable(struct folio *folio)
  * Return value and mmap_lock implications depend on flags; see
  * __folio_lock_or_retry().
  */
-static inline vm_fault_t folio_lock_or_retry(struct folio *folio,
-					     struct vm_fault *vmf)
+static inline bool folio_lock_or_retry(struct folio *folio,
+		struct mm_struct *mm, unsigned int flags)
 {
 	might_sleep();
-	if (!folio_trylock(folio))
-		return __folio_lock_or_retry(folio, vmf);
-	return 0;
+	return folio_trylock(folio) || __folio_lock_or_retry(folio, mm, flags);
 }
 
 /*

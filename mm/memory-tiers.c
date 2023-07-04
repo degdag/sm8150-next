@@ -586,7 +586,7 @@ void clear_node_memory_type(int node, struct memory_dev_type *memtype)
 	 */
 	if (!node_memory_types[node].map_count) {
 		node_memory_types[node].memtype = NULL;
-		destroy_memory_type(memtype);
+		kref_put(&memtype->kref, release_memtype);
 	}
 	mutex_unlock(&memory_tier_lock);
 }
