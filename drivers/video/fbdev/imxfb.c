@@ -868,7 +868,6 @@ static int imxfb_probe(struct platform_device *pdev)
 	struct imxfb_info *fbi;
 	struct lcd_device *lcd;
 	struct fb_info *info;
-	struct resource *res;
 	struct imx_fb_videomode *m;
 	const struct of_device_id *of_id;
 	struct device_node *display_np;
@@ -884,10 +883,6 @@ static int imxfb_probe(struct platform_device *pdev)
 	of_id = of_match_device(imxfb_of_dev_id, &pdev->dev);
 	if (of_id)
 		pdev->id_entry = of_id->data;
-
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	if (!res)
-		return -ENODEV;
 
 	info = framebuffer_alloc(sizeof(struct imxfb_info), &pdev->dev);
 	if (!info)
@@ -970,7 +965,7 @@ static int imxfb_probe(struct platform_device *pdev)
 		goto failed_getclock;
 	}
 
-	fbi->regs = devm_ioremap_resource(&pdev->dev, res);
+	fbi->regs = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(fbi->regs)) {
 		ret = PTR_ERR(fbi->regs);
 		goto failed_ioremap;
@@ -1043,7 +1038,6 @@ failed_cmap:
 failed_map:
 failed_ioremap:
 failed_getclock:
-	release_mem_region(res->start, resource_size(res));
 failed_of_parse:
 	kfree(info->pseudo_palette);
 failed_init:
