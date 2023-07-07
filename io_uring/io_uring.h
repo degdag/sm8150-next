@@ -10,6 +10,7 @@
 #include "io-wq.h"
 #include "slist.h"
 #include "filetable.h"
+#include "refs.h"
 
 #ifndef CREATE_TRACE_POINTS
 #include <trace/events/io_uring.h>
@@ -94,7 +95,7 @@ bool io_match_task_safe(struct io_kiocb *head, struct task_struct *task,
 			lockdep_assert_held(&ctx->uring_lock);		\
 		} else if (!ctx->task_complete) {			\
 			lockdep_assert_held(&ctx->completion_lock);	\
-		} else if (ctx->submitter_task->flags & PF_EXITING) {	\
+		} else if (io_ring_ref_is_dying(ctx)) {		\
 			lockdep_assert(current_work());			\
 		} else {						\
 			lockdep_assert(current == ctx->submitter_task);	\
