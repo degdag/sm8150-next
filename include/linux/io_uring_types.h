@@ -223,7 +223,7 @@ struct io_ring_ctx {
 
 		struct io_rings			*rings;
 		struct task_struct		*submitter_task;
-		struct percpu_ref		refs;
+		unsigned long			ref_ptr;
 	} ____cacheline_aligned_in_smp;
 
 	/* submission data */
