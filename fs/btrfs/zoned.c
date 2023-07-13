@@ -465,8 +465,8 @@ int btrfs_get_dev_zone_info(struct btrfs_device *device, bool populate_cache)
 	 * use the cache.
 	 */
 	if (populate_cache && bdev_is_zoned(device->bdev)) {
-		zone_info->zone_cache = vzalloc(sizeof(struct blk_zone) *
-						zone_info->nr_zones);
+		zone_info->zone_cache = vcalloc(zone_info->nr_zones,
+						sizeof(struct blk_zone));
 		if (!zone_info->zone_cache) {
 			btrfs_err_in_rcu(device->fs_info,
 				"zoned: failed to allocate zone cache for %s",
@@ -803,6 +803,11 @@ int btrfs_check_mountopts_zoned(struct btrfs_fs_info *info)
 	if (btrfs_test_opt(info, NODATACOW)) {
 		btrfs_err(info, "zoned: NODATACOW not supported");
 		return -EINVAL;
+	}
+
+	if (btrfs_test_opt(info, DISCARD_ASYNC)) {
+		btrfs_info(info, "zoned: async discard ignored and disabled for zoned mode");
+		btrfs_clear_opt(info->mount_opt, DISCARD_ASYNC);
 	}
 
 	return 0;
