@@ -298,7 +298,7 @@ err_xormap:
 	if (rc) {
 		dev_err(dev, "Failed to add decode range [%#llx - %#llx]\n",
 			res->start, res->end);
-		return 0;
+		return rc;
 	}
 	dev_dbg(dev, "add: %s node: %d range [%#llx - %#llx]\n",
 		dev_name(&cxld->dev),
