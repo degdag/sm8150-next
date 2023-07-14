@@ -57,7 +57,6 @@ config_override_param () {
 		cat $T/Kconfig_args >> $resdir/ConfigFragment.input
 		config_override.sh $T/$2 $T/Kconfig_args > $T/$2.tmp
 		mv $T/$2.tmp $T/$2
-		# Note that "#CHECK#" is not permitted on commandline.
 	fi
 }
 
@@ -140,7 +139,7 @@ then
 fi
 
 # Generate -smp qemu argument.
-qemu_args="-enable-kvm -nographic $qemu_args"
+qemu_args="-enable-kvm -nographic -no-reboot $qemu_args"
 cpu_count=`configNR_CPUS.sh $resdir/ConfigFragment`
 cpu_count=`configfrag_boot_cpus "$boot_args_in" "$config_template" "$cpu_count"`
 if test "$cpu_count" -gt "$TORTURE_ALLOTED_CPUS"
@@ -163,7 +162,7 @@ boot_args="`configfrag_boot_params "$boot_args_in" "$config_template"`"
 boot_args="`per_version_boot_params "$boot_args" $resdir/.config $seconds`"
 if test -n "$TORTURE_BOOT_GDB_ARG"
 then
-	boot_args="$boot_args $TORTURE_BOOT_GDB_ARG"
+	boot_args="$TORTURE_BOOT_GDB_ARG $boot_args"
 fi
 
 # Give bare-metal advice
