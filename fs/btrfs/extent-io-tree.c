@@ -831,15 +831,15 @@ static struct extent_state *find_first_extent_bit_state(struct extent_io_tree *t
  *
  * Note: If there are multiple bits set in @bits, any of them will match.
  *
- * Return 0 if we find something, and update @start_ret and @end_ret.
- * Return 1 if we found nothing.
+ * Return true if we find something, and update @start_ret and @end_ret.
+ * Return false if we found nothing.
  */
-int find_first_extent_bit(struct extent_io_tree *tree, u64 start,
-			  u64 *start_ret, u64 *end_ret, u32 bits,
-			  struct extent_state **cached_state)
+bool find_first_extent_bit(struct extent_io_tree *tree, u64 start,
+			   u64 *start_ret, u64 *end_ret, u32 bits,
+			   struct extent_state **cached_state)
 {
 	struct extent_state *state;
-	int ret = 1;
+	bool ret = false;
 
 	spin_lock(&tree->lock);
 	if (cached_state && *cached_state) {
@@ -863,7 +863,7 @@ got_it:
 		cache_state_if_flags(state, cached_state, 0);
 		*start_ret = state->start;
 		*end_ret = state->end;
-		ret = 0;
+		ret = true;
 	}
 out:
 	spin_unlock(&tree->lock);
@@ -1771,7 +1771,7 @@ int __init extent_state_init_cachep(void)
 {
 	extent_state_cache = kmem_cache_create("btrfs_extent_state",
 			sizeof(struct extent_state), 0,
-			SLAB_MEM_SPREAD, NULL);
+			BTRFS_DEBUG_SLAB_NO_MERGE | SLAB_MEM_SPREAD, NULL);
 	if (!extent_state_cache)
 		return -ENOMEM;
 
