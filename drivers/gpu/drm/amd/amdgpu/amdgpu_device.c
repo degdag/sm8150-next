@@ -1325,6 +1325,9 @@ int amdgpu_device_resize_fb_bar(struct amdgpu_device *adev)
 	u16 cmd;
 	int r;
 
+	if (!IS_ENABLED(CONFIG_PHYS_ADDR_T_64BIT))
+		return 0;
+
 	/* Bypass for VF */
 	if (amdgpu_sriov_vf(adev))
 		return 0;
@@ -4069,14 +4072,6 @@ fence_driver_init:
 	} else
 		adev->ucode_sysfs_en = true;
 
-	r = amdgpu_psp_sysfs_init(adev);
-	if (r) {
-		adev->psp_sysfs_en = false;
-		if (!amdgpu_sriov_vf(adev))
-			DRM_ERROR("Creating psp sysfs failed\n");
-	} else
-		adev->psp_sysfs_en = true;
-
 	/*
 	 * Register gpu instance before amdgpu_device_enable_mgpu_fan_boost.
 	 * Otherwise the mgpu fan boost feature will be skipped due to the
@@ -4226,8 +4221,6 @@ void amdgpu_device_fini_hw(struct amdgpu_device *adev)
 		amdgpu_pm_sysfs_fini(adev);
 	if (adev->ucode_sysfs_en)
 		amdgpu_ucode_sysfs_fini(adev);
-	if (adev->psp_sysfs_en)
-		amdgpu_psp_sysfs_fini(adev);
 	sysfs_remove_files(&adev->dev->kobj, amdgpu_dev_attributes);
 
 	/* disable ras feature must before hw fini */
