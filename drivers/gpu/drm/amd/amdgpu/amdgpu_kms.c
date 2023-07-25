@@ -1102,6 +1102,9 @@ int amdgpu_info_ioctl(struct drm_device *dev, void *data, struct drm_file *filp)
 		struct drm_amdgpu_info_video_caps *caps;
 		int r;
 
+		if (!adev->asic_funcs->query_video_codecs)
+			return -EINVAL;
+
 		switch (info->video_cap.type) {
 		case AMDGPU_INFO_VIDEO_CAPS_DECODE:
 			r = amdgpu_asic_query_video_codecs(adev, false, &codecs);
@@ -1719,7 +1722,7 @@ static int amdgpu_debugfs_firmware_info_show(struct seq_file *m, void *unused)
 	seq_printf(m, "MES feature version: %u, firmware version: 0x%08x\n",
 		   fw_info.feature, fw_info.ver);
 
-	seq_printf(m, "VBIOS version: %s\n", ctx->vbios_version);
+	seq_printf(m, "VBIOS version: %s\n", ctx->vbios_pn);
 
 	return 0;
 }
