@@ -193,7 +193,6 @@ static int hs3001_probe(struct i2c_client *client)
 	struct hs3001_data *data;
 	struct device *hwmon_dev;
 	struct device *dev = &client->dev;
-	int ret;
 
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C))
 		return -EOPNOTSUPP;
