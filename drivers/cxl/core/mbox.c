@@ -1368,10 +1368,8 @@ struct cxl_memdev_state *cxl_memdev_state_create(struct device *dev)
 	struct cxl_memdev_state *mds;
 
 	mds = devm_kzalloc(dev, sizeof(*mds), GFP_KERNEL);
-	if (!mds) {
-		dev_err(dev, "No memory available\n");
+	if (!mds)
 		return ERR_PTR(-ENOMEM);
-	}
 
 	mutex_init(&mds->mbox_mutex);
 	mutex_init(&mds->event.log_lock);
