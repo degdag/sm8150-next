@@ -537,8 +537,10 @@ static void __gfs2_log_reserve(struct gfs2_sbd *sdp, unsigned int blks,
 
 	atomic_add(blks, &sdp->sd_log_blks_needed);
 	for (;;) {
-		if (current != sdp->sd_logd_process)
+		if (current != sdp->sd_logd_process) {
+			set_bit(SDF_FLUSH, &sdp->sd_flags);
 			wake_up(&sdp->sd_logd_waitq);
+		}
 		io_wait_event(sdp->sd_log_waitq,
 			(free_blocks = atomic_read(&sdp->sd_log_blks_free),
 			 free_blocks >= wanted));
@@ -1248,8 +1250,10 @@ void gfs2_log_commit(struct gfs2_sbd *sdp, struct gfs2_trans *tr)
 
 	if (atomic_read(&sdp->sd_log_pinned) > atomic_read(&sdp->sd_log_thresh1) ||
 	    ((sdp->sd_jdesc->jd_blocks - atomic_read(&sdp->sd_log_blks_free)) >
-	    atomic_read(&sdp->sd_log_thresh2)))
+	    atomic_read(&sdp->sd_log_thresh2))) {
+		set_bit(SDF_FLUSH, &sdp->sd_flags);
 		wake_up(&sdp->sd_logd_waitq);
+	}
 }
 
 /**
@@ -1301,7 +1305,6 @@ int gfs2_logd(void *data)
 {
 	struct gfs2_sbd *sdp = data;
 	unsigned long t = 1;
-	DEFINE_WAIT(wait);
 
 	while (!kthread_should_stop()) {
 
@@ -1339,17 +1342,13 @@ int gfs2_logd(void *data)
 
 		try_to_freeze();
 
-		do {
-			prepare_to_wait(&sdp->sd_logd_waitq, &wait,
-					TASK_INTERRUPTIBLE);
-			if (!gfs2_ail_flush_reqd(sdp) &&
-			    !gfs2_jrnl_flush_reqd(sdp) &&
-			    !kthread_should_stop())
-				t = schedule_timeout(t);
-		} while(t && !gfs2_ail_flush_reqd(sdp) &&
-			!gfs2_jrnl_flush_reqd(sdp) &&
-			!kthread_should_stop());
-		finish_wait(&sdp->sd_logd_waitq, &wait);
+		t = wait_event_timeout(sdp->sd_log_waitq,
+				       test_bit(SDF_FLUSH, &sdp->sd_flags) ||
+				       test_bit(SDF_FORCE_AIL_FLUSH, &sdp->sd_flags) ||
+				       gfs2_withdrawn(sdp) ||
+				       kthread_should_stop(),
+				       t);
+		clear_bit(SDF_FLUSH, &sdp->sd_flags);
 	}
 
 	return 0;
