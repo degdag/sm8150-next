@@ -113,8 +113,6 @@
 
 #ifndef __ASSEMBLY__
 
-#include <linux/cache.h>
-
 /*
  * Used for initialization calls..
  */
@@ -146,7 +144,7 @@ struct file_system_type;
 
 /* Defined in init/main.c */
 extern int do_one_initcall(initcall_t fn);
-extern char boot_command_line[] __ro_after_init;
+extern char boot_command_line[];
 extern char *saved_command_line;
 extern unsigned int saved_command_line_len;
 extern unsigned int reset_devices;
