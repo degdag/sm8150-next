@@ -678,8 +678,10 @@ isolate_fail:
 	/*
 	 * There is a tiny chance that we have read bogus compound_order(),
 	 * so be careful to not go outside of the pageblock.
+	 * Allow blockpfn outside pageblock in normal case that we isolate
+	 * buddy page with order more than pageblock order.
 	 */
-	if (unlikely(blockpfn > end_pfn))
+	if (unlikely(blockpfn > end_pfn) && total_isolated <= pageblock_nr_pages)
 		blockpfn = end_pfn;
 
 	trace_mm_compaction_isolate_freepages(*start_pfn, blockpfn,
@@ -1441,7 +1443,7 @@ fast_isolate_around(struct compact_control *cc, unsigned long pfn)
 	isolate_freepages_block(cc, &start_pfn, end_pfn, &cc->freepages, 1, false);
 
 	/* Skip this pageblock in the future as it's full or nearly full */
-	if (start_pfn == end_pfn)
+	if (start_pfn >= end_pfn)
 		set_pageblock_skip(page);
 
 	return;
@@ -1713,7 +1715,7 @@ static void isolate_freepages(struct compact_control *cc)
 					block_end_pfn, freelist, stride, false);
 
 		/* Update the skip hint if the full pageblock was scanned */
-		if (isolate_start_pfn == block_end_pfn)
+		if (isolate_start_pfn >= block_end_pfn)
 			update_pageblock_skip(cc, page, block_start_pfn);
 
 		/* Are enough freepages isolated? */
