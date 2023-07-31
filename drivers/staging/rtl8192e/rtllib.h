@@ -1440,10 +1440,6 @@ struct rtllib_device {
 				 * WEP key changes
 				 */
 
-	/* If the host performs {en,de}cryption, then set to 1 */
-	int host_encrypt;
-	int host_decrypt;
-
 	int ieee802_1x; /* is IEEE 802.1X used */
 
 	/* WPA data */
@@ -1490,9 +1486,7 @@ struct rtllib_device {
 
 	enum rtl_link_state link_state;
 
-	int short_slot;
 	int mode;       /* A, B, G */
-	int modulation; /* CCK, OFDM */
 
 	/* used for forcing the ibss workqueue to terminate
 	 * without wait for the syncro scan to terminate
