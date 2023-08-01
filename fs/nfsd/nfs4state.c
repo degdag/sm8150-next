@@ -5449,7 +5449,7 @@ nfs4_set_delegation(struct nfsd4_open *open, struct nfs4_ol_stateid *stp,
 	struct nfs4_file *fp = stp->st_stid.sc_file;
 	struct nfs4_clnt_odstate *odstate = stp->st_clnt_odstate;
 	struct nfs4_delegation *dp;
-	struct nfsd_file *nf;
+	struct nfsd_file *nf = NULL;
 	struct file_lock *fl;
 	u32 dl_type;
 
@@ -5461,21 +5461,28 @@ nfs4_set_delegation(struct nfsd4_open *open, struct nfs4_ol_stateid *stp,
 	if (fp->fi_had_conflict)
 		return ERR_PTR(-EAGAIN);
 
-	if (open->op_share_access & NFS4_SHARE_ACCESS_WRITE) {
-		nf = find_writeable_file(fp);
+	/*
+	 * Try for a write delegation first. We need an O_RDWR file
+	 * since a write delegation allows the client to perform any open
+	 * from its cache.
+	 */
+	if ((open->op_share_access & NFS4_SHARE_ACCESS_BOTH) == NFS4_SHARE_ACCESS_BOTH) {
+		nf = nfsd_file_get(fp->fi_fds[O_RDWR]);
 		dl_type = NFS4_OPEN_DELEGATE_WRITE;
-	} else {
+	}
+
+	/*
+	 * If the file is being opened O_RDONLY or we couldn't get a O_RDWR
+	 * file for some reason, then try for a read deleg instead.
+	 */
+	if (!nf && (open->op_share_access & NFS4_SHARE_ACCESS_READ)) {
 		nf = find_readable_file(fp);
 		dl_type = NFS4_OPEN_DELEGATE_READ;
 	}
-	if (!nf) {
-		/*
-		 * We probably could attempt another open and get a read
-		 * delegation, but for now, don't bother until the
-		 * client actually sends us one.
-		 */
+
+	if (!nf)
 		return ERR_PTR(-EAGAIN);
-	}
+
 	spin_lock(&state_lock);
 	spin_lock(&fp->fi_lock);
 	if (nfs4_delegation_exists(clp, fp))
