@@ -70,10 +70,26 @@ int fsverity_verify_signature(const struct fsverity_info *vi,
 	d->digest_size = cpu_to_le16(hash_alg->digest_size);
 	memcpy(d->digest, vi->file_digest, hash_alg->digest_size);
 
-	err = verify_pkcs7_signature(d, sizeof(*d) + hash_alg->digest_size,
-				     signature, sig_size, fsverity_keyring,
-				     VERIFYING_UNSPECIFIED_SIGNATURE,
-				     NULL, NULL);
+	if (fsverity_keyring->keys.nr_leaves_on_tree == 0) {
+		/*
+		 * The ".fs-verity" keyring is empty, due to builtin signatures
+		 * being supported by the kernel but not actually being used.
+		 * In this case, verify_pkcs7_signature() would always return an
+		 * error, usually ENOKEY.  It could also be EBADMSG if the
+		 * PKCS#7 is malformed, but that isn't very important to
+		 * distinguish.  So, just skip to ENOKEY to avoid the attack
+		 * surface of the PKCS#7 parser, which would otherwise be
+		 * reachable by any task able to execute FS_IOC_ENABLE_VERITY.
+		 */
+		err = -ENOKEY;
+	} else {
+		err = verify_pkcs7_signature(d,
+					     sizeof(*d) + hash_alg->digest_size,
+					     signature, sig_size,
+					     fsverity_keyring,
+					     VERIFYING_UNSPECIFIED_SIGNATURE,
+					     NULL, NULL);
+	}
 	kfree(d);
 
 	if (err) {
