@@ -2358,8 +2358,8 @@ static int vfs_setup_quota_inode(struct inode *inode, int type)
 	return 0;
 }
 
-static int dquot_load_quota_sb(struct super_block *sb, int type, int format_id,
-		unsigned int flags)
+int dquot_load_quota_sb(struct super_block *sb, int type, int format_id,
+	unsigned int flags)
 {
 	struct quota_format_type *fmt = find_quota_format(format_id);
 	struct quota_info *dqopt = sb_dqopt(sb);
@@ -2434,6 +2434,7 @@ out_fmt:
 
 	return error;
 }
+EXPORT_SYMBOL(dquot_load_quota_sb);
 
 /*
  * More powerful function for turning on quotas on given quota inode allowing
