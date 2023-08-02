@@ -278,8 +278,14 @@ struct inode *gfs2_lookup_simple(struct inode *dip, const char *name)
 	 */
 	if (inode == NULL)
 		return ERR_PTR(-ENOENT);
-	else
-		return inode;
+
+	/*
+	 * Must not call back into the filesystem when allocating
+	 * pages in the metadata inode's address space.
+	 */
+	mapping_set_gfp_mask(inode->i_mapping, GFP_NOFS);
+
+	return inode;
 }
 
 
