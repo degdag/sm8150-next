@@ -19,11 +19,25 @@
 
 static bool serial_base_initialized;
 
+static const struct device_type serial_ctrl_type = {
+	.name = "ctrl",
+};
+
+static const struct device_type serial_port_type = {
+	.name = "port",
+};
+
 static int serial_base_match(struct device *dev, struct device_driver *drv)
 {
-	int len = strlen(drv->name);
+	if (dev->type == &serial_ctrl_type &&
+	    str_has_prefix(drv->name, serial_ctrl_type.name))
+		return 1;
 
-	return !strncmp(dev_name(dev), drv->name, len);
+	if (dev->type == &serial_port_type &&
+	    str_has_prefix(drv->name, serial_port_type.name))
+		return 1;
+
+	return 0;
 }
 
 static struct bus_type serial_base_bus_type = {
@@ -48,7 +62,8 @@ static int serial_base_device_init(struct uart_port *port,
 				   struct device *parent_dev,
 				   const struct device_type *type,
 				   void (*release)(struct device *dev),
-				   int id)
+				   unsigned int ctrl_id,
+				   unsigned int port_id)
 {
 	device_initialize(dev);
 	dev->type = type;
@@ -61,12 +76,15 @@ static int serial_base_device_init(struct uart_port *port,
 		return -EPROBE_DEFER;
 	}
 
-	return dev_set_name(dev, "%s.%s.%d", type->name, dev_name(port->dev), id);
-}
+	if (type == &serial_ctrl_type)
+		return dev_set_name(dev, "%s:%d", dev_name(port->dev), ctrl_id);
 
-static const struct device_type serial_ctrl_type = {
-	.name = "ctrl",
-};
+	if (type == &serial_port_type)
+		return dev_set_name(dev, "%s:%d.%d", dev_name(port->dev),
+				    ctrl_id, port_id);
+
+	return -EINVAL;
+}
 
 static void serial_base_ctrl_release(struct device *dev)
 {
@@ -96,7 +114,7 @@ struct serial_ctrl_device *serial_base_ctrl_add(struct uart_port *port,
 	err = serial_base_device_init(port, &ctrl_dev->dev,
 				      parent, &serial_ctrl_type,
 				      serial_base_ctrl_release,
-				      port->ctrl_id);
+				      port->ctrl_id, 0);
 	if (err)
 		goto err_put_device;
 
@@ -111,10 +129,6 @@ err_put_device:
 
 	return ERR_PTR(err);
 }
-
-static const struct device_type serial_port_type = {
-	.name = "port",
-};
 
 static void serial_base_port_release(struct device *dev)
 {
@@ -136,7 +150,7 @@ struct serial_port_device *serial_base_port_add(struct uart_port *port,
 	err = serial_base_device_init(port, &port_dev->dev,
 				      &ctrl_dev->dev, &serial_port_type,
 				      serial_base_port_release,
-				      port->line);
+				      port->ctrl_id, port->port_id);
 	if (err)
 		goto err_put_device;
 
