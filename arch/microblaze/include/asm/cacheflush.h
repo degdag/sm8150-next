@@ -74,7 +74,7 @@ do { \
 	flush_dcache_range((unsigned) (addr), (unsigned) (addr) + PAGE_SIZE); \
 } while (0);
 
-static void flush_dcache_folio(struct folio *folio)
+static inline void flush_dcache_folio(struct folio *folio)
 {
 	unsigned long addr = folio_pfn(folio) << PAGE_SHIFT;
 
