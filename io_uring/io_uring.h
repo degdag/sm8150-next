@@ -10,6 +10,7 @@
 #include "io-wq.h"
 #include "slist.h"
 #include "filetable.h"
+#include "refs.h"
 
 #ifndef CREATE_TRACE_POINTS
 #include <trace/events/io_uring.h>
@@ -39,13 +40,12 @@ enum {
 };
 
 struct io_uring_cqe *__io_get_cqe(struct io_ring_ctx *ctx, bool overflow);
-bool io_req_cqe_overflow(struct io_kiocb *req);
+void io_req_cqe_overflow(struct io_kiocb *req);
 int io_run_task_work_sig(struct io_ring_ctx *ctx);
 void io_req_defer_failed(struct io_kiocb *req, s32 res);
 void io_req_complete_post(struct io_kiocb *req, unsigned issue_flags);
 bool io_post_aux_cqe(struct io_ring_ctx *ctx, u64 user_data, s32 res, u32 cflags);
-bool io_aux_cqe(const struct io_kiocb *req, bool defer, s32 res, u32 cflags,
-		bool allow_overflow);
+bool io_fill_cqe_req_aux(struct io_kiocb *req, bool defer, s32 res, u32 cflags);
 void __io_commit_cqring_flush(struct io_ring_ctx *ctx);
 
 struct page **io_pin_pages(unsigned long ubuf, unsigned long len, int *npages);
@@ -95,7 +95,7 @@ bool io_match_task_safe(struct io_kiocb *head, struct task_struct *task,
 			lockdep_assert_held(&ctx->uring_lock);		\
 		} else if (!ctx->task_complete) {			\
 			lockdep_assert_held(&ctx->completion_lock);	\
-		} else if (ctx->submitter_task->flags & PF_EXITING) {	\
+		} else if (io_ring_ref_is_dying(ctx)) {		\
 			lockdep_assert(current_work());			\
 		} else {						\
 			lockdep_assert(current == ctx->submitter_task);	\
@@ -133,8 +133,7 @@ static inline struct io_uring_cqe *io_get_cqe(struct io_ring_ctx *ctx)
 	return io_get_cqe_overflow(ctx, false);
 }
 
-static inline bool __io_fill_cqe_req(struct io_ring_ctx *ctx,
-				     struct io_kiocb *req)
+static inline bool io_fill_cqe_req(struct io_ring_ctx *ctx, struct io_kiocb *req)
 {
 	struct io_uring_cqe *cqe;
 
@@ -168,14 +167,6 @@ static inline bool __io_fill_cqe_req(struct io_ring_ctx *ctx,
 	return true;
 }
 
-static inline bool io_fill_cqe_req(struct io_ring_ctx *ctx,
-				   struct io_kiocb *req)
-{
-	if (likely(__io_fill_cqe_req(ctx, req)))
-		return true;
-	return io_req_cqe_overflow(req);
-}
-
 static inline void req_set_fail(struct io_kiocb *req)
 {
 	req->flags |= REQ_F_FAIL;
@@ -196,10 +187,10 @@ static inline bool req_has_async_data(struct io_kiocb *req)
 	return req->flags & REQ_F_ASYNC_DATA;
 }
 
-static inline void io_put_file(struct file *file)
+static inline void io_put_file(struct io_kiocb *req)
 {
-	if (file)
-		fput(file);
+	if (!(req->flags & REQ_F_FIXED_FILE) && req->file)
+		fput(req->file);
 }
 
 static inline void io_ring_submit_unlock(struct io_ring_ctx *ctx,
@@ -354,7 +345,6 @@ static inline struct io_kiocb *io_extract_req(struct io_ring_ctx *ctx)
 	struct io_kiocb *req;
 
 	req = container_of(ctx->submit_state.free_list.next, struct io_kiocb, comp_list);
-	kasan_unpoison_object_data(req_cachep, req);
 	wq_stack_extract(&ctx->submit_state.free_list);
 	return req;
 }

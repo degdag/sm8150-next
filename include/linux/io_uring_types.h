@@ -223,7 +223,7 @@ struct io_ring_ctx {
 
 		struct io_rings			*rings;
 		struct task_struct		*submitter_task;
-		struct percpu_ref		refs;
+		unsigned long			ref_ptr;
 	} ____cacheline_aligned_in_smp;
 
 	/* submission data */
@@ -374,6 +374,8 @@ struct io_ring_ctx {
 	unsigned			sq_thread_idle;
 	/* protected by ->completion_lock */
 	unsigned			evfd_last_cq_tail;
+
+	struct completion		*exit_comp;
 };
 
 struct io_tw_state {

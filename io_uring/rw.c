@@ -18,6 +18,7 @@
 #include "opdef.h"
 #include "kbuf.h"
 #include "rsrc.h"
+#include "refs.h"
 #include "rw.h"
 
 struct io_rw {
@@ -199,7 +200,7 @@ static bool io_rw_should_reissue(struct io_kiocb *req)
 	 * Don't attempt to reissue from that path, just let it fail with
 	 * -EAGAIN.
 	 */
-	if (percpu_ref_is_dying(&ctx->refs))
+	if (io_ring_ref_is_dying(ctx))
 		return false;
 	/*
 	 * Play it safe and assume not safe to re-import and reissue if we're
@@ -1064,7 +1065,7 @@ int io_do_iopoll(struct io_ring_ctx *ctx, bool force_nonspin)
 			continue;
 
 		req->cqe.flags = io_put_kbuf(req, 0);
-		if (unlikely(!__io_fill_cqe_req(ctx, req))) {
+		if (unlikely(!io_fill_cqe_req(ctx, req))) {
 			spin_lock(&ctx->completion_lock);
 			io_req_cqe_overflow(req);
 			spin_unlock(&ctx->completion_lock);
