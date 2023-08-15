@@ -885,7 +885,7 @@ static int spmmc_drv_probe(struct platform_device *pdev)
 		return dev_err_probe(&pdev->dev, PTR_ERR(host->rstc), "rst get fail\n");
 
 	host->irq = platform_get_irq(pdev, 0);
-	if (host->irq <= 0)
+	if (host->irq < 0)
 		return host->irq;
 
 	ret = devm_request_threaded_irq(&pdev->dev, host->irq,
@@ -948,7 +948,6 @@ static int spmmc_drv_remove(struct platform_device *dev)
 	clk_disable_unprepare(host->clk);
 	pm_runtime_put_noidle(&dev->dev);
 	pm_runtime_disable(&dev->dev);
-	platform_set_drvdata(dev, NULL);
 
 	return 0;
 }
