@@ -77,7 +77,7 @@ static struct inode *fuse_alloc_inode(struct super_block *sb)
 		return NULL;
 
 	fi->i_time = 0;
-	fi->inval_mask = 0;
+	fi->inval_mask = ~0;
 	fi->nodeid = 0;
 	fi->nlookup = 0;
 	fi->attr_version = 0;
@@ -163,6 +163,7 @@ static ino_t fuse_squash_ino(u64 ino64)
 }
 
 void fuse_change_attributes_common(struct inode *inode, struct fuse_attr *attr,
+				   struct fuse_statx *sx,
 				   u64 attr_valid, u32 cache_mask)
 {
 	struct fuse_conn *fc = get_fuse_conn(inode);
@@ -172,7 +173,8 @@ void fuse_change_attributes_common(struct inode *inode, struct fuse_attr *attr,
 
 	fi->attr_version = atomic64_inc_return(&fc->attr_version);
 	fi->i_time = attr_valid;
-	WRITE_ONCE(fi->inval_mask, 0);
+	/* Clear basic stats from invalid mask */
+	set_mask_bits(&fi->inval_mask, STATX_BASIC_STATS, 0);
 
 	inode->i_ino     = fuse_squash_ino(attr->ino);
 	inode->i_mode    = (inode->i_mode & S_IFMT) | (attr->mode & 07777);
@@ -196,6 +198,25 @@ void fuse_change_attributes_common(struct inode *inode, struct fuse_attr *attr,
 	if (!(cache_mask & STATX_CTIME)) {
 		inode->i_ctime.tv_sec   = attr->ctime;
 		inode->i_ctime.tv_nsec  = attr->ctimensec;
+	}
+	if (sx) {
+		/* Sanitize nsecs */
+		sx->btime.tv_nsec =
+			min_t(u32, sx->btime.tv_nsec, NSEC_PER_SEC - 1);
+
+		/*
+		 * Btime has been queried, cache is valid (whether or not btime
+		 * is available or not) so clear STATX_BTIME from inval_mask.
+		 *
+		 * Availability of the btime attribute is indicated in
+		 * FUSE_I_BTIME
+		 */
+		set_mask_bits(&fi->inval_mask, STATX_BTIME, 0);
+		if (sx->mask & STATX_BTIME) {
+			set_bit(FUSE_I_BTIME, &fi->state);
+			fi->i_btime.tv_sec = sx->btime.tv_sec;
+			fi->i_btime.tv_nsec = sx->btime.tv_nsec;
+		}
 	}
 
 	if (attr->blksize != 0)
@@ -236,6 +257,7 @@ u32 fuse_get_cache_mask(struct inode *inode)
 }
 
 void fuse_change_attributes(struct inode *inode, struct fuse_attr *attr,
+			    struct fuse_statx *sx,
 			    u64 attr_valid, u64 attr_version)
 {
 	struct fuse_conn *fc = get_fuse_conn(inode);
@@ -270,7 +292,7 @@ void fuse_change_attributes(struct inode *inode, struct fuse_attr *attr,
 	}
 
 	old_mtime = inode->i_mtime;
-	fuse_change_attributes_common(inode, attr, attr_valid, cache_mask);
+	fuse_change_attributes_common(inode, attr, sx, attr_valid, cache_mask);
 
 	oldsize = inode->i_size;
 	/*
@@ -408,7 +430,7 @@ done:
 	spin_lock(&fi->lock);
 	fi->nlookup++;
 	spin_unlock(&fi->lock);
-	fuse_change_attributes(inode, attr, attr_valid, attr_version);
+	fuse_change_attributes(inode, attr, NULL, attr_valid, attr_version);
 
 	return inode;
 }
