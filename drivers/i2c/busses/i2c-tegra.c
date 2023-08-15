@@ -22,7 +22,7 @@
 #include <linux/kernel.h>
 #include <linux/ktime.h>
 #include <linux/module.h>
-#include <linux/of_device.h>
+#include <linux/of.h>
 #include <linux/pinctrl/consumer.h>
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
@@ -460,6 +460,7 @@ static int tegra_i2c_init_dma(struct tegra_i2c_dev *i2c_dev)
 	i2c_dev->dma_chan = dma_request_chan(i2c_dev->dev, "tx");
 	if (IS_ERR(i2c_dev->dma_chan)) {
 		err = PTR_ERR(i2c_dev->dma_chan);
+		i2c_dev->dma_chan = NULL;
 		goto err_out;
 	}
 
