@@ -223,7 +223,7 @@ struct io_ring_ctx {
 
 		struct io_rings			*rings;
 		struct task_struct		*submitter_task;
-		struct percpu_ref		refs;
+		unsigned long			ref_ptr;
 	} ____cacheline_aligned_in_smp;
 
 	/* submission data */
@@ -272,6 +272,11 @@ struct io_ring_ctx {
 	/* IRQ completion list, under ->completion_lock */
 	struct io_wq_work_list	locked_free_list;
 	unsigned int		locked_free_nr;
+
+	struct hlist_head	futex_list;
+	struct io_alloc_cache	futex_cache;
+
+	struct hlist_head	waitid_list;
 
 	const struct cred	*sq_creds;	/* cred used for __io_sq_thread() */
 	struct io_sq_data	*sq_data;	/* if using sq thread polling */
@@ -374,6 +379,8 @@ struct io_ring_ctx {
 	unsigned			sq_thread_idle;
 	/* protected by ->completion_lock */
 	unsigned			evfd_last_cq_tail;
+
+	struct completion		*exit_comp;
 };
 
 struct io_tw_state {
