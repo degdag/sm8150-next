@@ -706,7 +706,7 @@ static inline struct file *maybe_unlock_mmap_for_io(struct vm_fault *vmf,
 	if (fault_flag_allow_retry_first(flags) &&
 	    !(flags & FAULT_FLAG_RETRY_NOWAIT)) {
 		fpin = get_file(vmf->vma->vm_file);
-		mmap_read_unlock(vmf->vma->vm_mm);
+		release_fault_lock(vmf);
 	}
 	return fpin;
 }
@@ -1039,6 +1039,7 @@ static inline bool gup_must_unshare(struct vm_area_struct *vma,
 }
 
 extern bool mirrored_kernelcore;
+extern bool memblock_has_mirror(void);
 
 static inline bool vma_soft_dirty_enabled(struct vm_area_struct *vma)
 {

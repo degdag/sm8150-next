@@ -335,19 +335,19 @@ static int oom_evaluate_task(struct task_struct *task, void *arg)
 	 */
 	if (oom_task_origin(task)) {
 		points = LONG_MAX;
-		goto select;
+	} else {
+		points = oom_badness(task, oc->totalpages);
+		if (points == LONG_MIN || points < oc->chosen_points)
+			goto next;
 	}
 
-	points = oom_badness(task, oc->totalpages);
-	if (points == LONG_MIN || points < oc->chosen_points)
-		goto next;
-
-select:
 	if (oc->chosen)
 		put_task_struct(oc->chosen);
 	get_task_struct(task);
 	oc->chosen = task;
 	oc->chosen_points = points;
+	if (points == LONG_MAX)
+		return 1;
 next:
 	return 0;
 abort:
@@ -478,8 +478,6 @@ static atomic_t oom_victims = ATOMIC_INIT(0);
 static DECLARE_WAIT_QUEUE_HEAD(oom_victims_wait);
 
 static bool oom_killer_disabled __read_mostly;
-
-#define K(x) ((x) << (PAGE_SHIFT-10))
 
 /*
  * task->mm can be NULL if the task is the exited group leader.  So to
@@ -994,7 +992,6 @@ static void __oom_kill_process(struct task_struct *victim, const char *message)
 	mmdrop(mm);
 	put_task_struct(victim);
 }
-#undef K
 
 /*
  * Kill provided task unless it's secured by setting

@@ -4775,7 +4775,7 @@ void hugetlb_show_meminfo_node(int nid)
 void hugetlb_report_usage(struct seq_file *m, struct mm_struct *mm)
 {
 	seq_printf(m, "HugetlbPages:\t%8lu kB\n",
-		   atomic_long_read(&mm->hugetlb_usage) << (PAGE_SHIFT - 10));
+		   K(atomic_long_read(&mm->hugetlb_usage)));
 }
 
 /* Return the number pages of memory we physically have, in PAGE_SIZE units. */
@@ -5056,7 +5056,7 @@ int copy_hugetlb_page_range(struct mm_struct *dst, struct mm_struct *src,
 					src_vma->vm_start,
 					src_vma->vm_end);
 		mmu_notifier_invalidate_range_start(&range);
-		mmap_assert_write_locked(src);
+		vma_assert_write_locked(src_vma);
 		raw_write_seqcount_begin(&src->write_protect_seq);
 	} else {
 		/*
@@ -5306,9 +5306,9 @@ int move_hugetlb_page_tables(struct vm_area_struct *vma,
 	}
 
 	if (shared_pmd)
-		flush_tlb_range(vma, range.start, range.end);
+		flush_hugetlb_tlb_range(vma, range.start, range.end);
 	else
-		flush_tlb_range(vma, old_end - len, old_end);
+		flush_hugetlb_tlb_range(vma, old_end - len, old_end);
 	mmu_notifier_invalidate_range_end(&range);
 	i_mmap_unlock_write(mapping);
 	hugetlb_vma_unlock_write(vma);
