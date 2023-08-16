@@ -45,4 +45,56 @@ static inline void io_req_set_refcount(struct io_kiocb *req)
 {
 	__io_req_set_refcount(req, 1);
 }
+
+int io_ring_ref_init(struct io_ring_ctx *ctx);
+void io_ring_ref_free(struct io_ring_ctx *ctx);
+void __cold io_ring_ref_maybe_done(struct io_ring_ctx *ctx);
+void io_ring_ref_kill(struct io_ring_ctx *ctx);
+
+enum {
+	CTX_REF_DEAD_BIT	= 0UL,
+	CTX_REF_DEAD_MASK	= 1UL,
+};
+
+static inline unsigned long __percpu *io_ring_ref(struct io_ring_ctx *ctx)
+{
+	return (unsigned long __percpu *) (ctx->ref_ptr & ~CTX_REF_DEAD_MASK);
+}
+
+static inline bool io_ring_ref_is_dying(struct io_ring_ctx *ctx)
+{
+	return test_bit(CTX_REF_DEAD_BIT, &ctx->ref_ptr);
+}
+
+static inline void io_ring_ref_get_many(struct io_ring_ctx *ctx, unsigned long nr)
+{
+	unsigned long __percpu *refs = io_ring_ref(ctx);
+
+	preempt_disable();
+	this_cpu_add(*refs, nr);
+	preempt_enable();
+}
+
+static inline void io_ring_ref_get(struct io_ring_ctx *ctx)
+{
+	io_ring_ref_get_many(ctx, 1);
+}
+
+static inline void io_ring_ref_put_many(struct io_ring_ctx *ctx, unsigned long nr)
+{
+	unsigned long __percpu *refs = io_ring_ref(ctx);
+
+	preempt_disable();
+	this_cpu_sub(*refs, nr);
+	preempt_enable();
+
+	if (unlikely(io_ring_ref_is_dying(ctx)))
+		io_ring_ref_maybe_done(ctx);
+}
+
+static inline void io_ring_ref_put(struct io_ring_ctx *ctx)
+{
+	io_ring_ref_put_many(ctx, 1);
+}
+
 #endif
