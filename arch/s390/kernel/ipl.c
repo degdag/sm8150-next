@@ -317,23 +317,21 @@ static ssize_t ipl_type_show(struct kobject *kobj, struct kobj_attribute *attr,
 
 static struct kobj_attribute sys_ipl_type_attr = __ATTR_RO(ipl_type);
 
-static ssize_t ipl_secure_show(struct kobject *kobj,
-			       struct kobj_attribute *attr, char *page)
+static ssize_t secure_show(struct kobject *kobj,
+			   struct kobj_attribute *attr, char *page)
 {
 	return sprintf(page, "%i\n", !!ipl_secure_flag);
 }
 
-static struct kobj_attribute sys_ipl_secure_attr =
-	__ATTR(secure, 0444, ipl_secure_show, NULL);
+static struct kobj_attribute sys_ipl_secure_attr = __ATTR_RO(secure);
 
-static ssize_t ipl_has_secure_show(struct kobject *kobj,
-				   struct kobj_attribute *attr, char *page)
+static ssize_t has_secure_show(struct kobject *kobj,
+			       struct kobj_attribute *attr, char *page)
 {
 	return sprintf(page, "%i\n", !!sclp.has_sipl);
 }
 
-static struct kobj_attribute sys_ipl_has_secure_attr =
-	__ATTR(has_secure, 0444, ipl_has_secure_show, NULL);
+static struct kobj_attribute sys_ipl_has_secure_attr = __ATTR_RO(has_secure);
 
 static ssize_t ipl_vm_parm_show(struct kobject *kobj,
 				struct kobj_attribute *attr, char *page)
@@ -345,8 +343,7 @@ static ssize_t ipl_vm_parm_show(struct kobject *kobj,
 	return sprintf(page, "%s\n", parm);
 }
 
-static struct kobj_attribute sys_ipl_vm_parm_attr =
-	__ATTR(parm, 0444, ipl_vm_parm_show, NULL);
+static struct kobj_attribute sys_ipl_vm_parm_attr = __ATTR_RO(ipl_vm_parm);
 
 static ssize_t sys_ipl_device_show(struct kobject *kobj,
 				   struct kobj_attribute *attr, char *page)
@@ -370,23 +367,21 @@ static ssize_t sys_ipl_device_show(struct kobject *kobj,
 	}
 }
 
-static struct kobj_attribute sys_ipl_device_attr =
-	__ATTR(device, 0444, sys_ipl_device_show, NULL);
+static struct kobj_attribute sys_ipl_device_attr = __ATTR_RO(sys_ipl_device);
 
-static ssize_t ipl_parameter_read(struct file *filp, struct kobject *kobj,
-				  struct bin_attribute *attr, char *buf,
-				  loff_t off, size_t count)
+static ssize_t binary_parameter_read(struct file *filp, struct kobject *kobj,
+				     struct bin_attribute *attr, char *buf,
+				     loff_t off, size_t count)
 {
 	return memory_read_from_buffer(buf, count, &off, &ipl_block,
 				       ipl_block.hdr.len);
 }
-static struct bin_attribute ipl_parameter_attr =
-	__BIN_ATTR(binary_parameter, 0444, ipl_parameter_read, NULL,
-		   PAGE_SIZE);
 
-static ssize_t ipl_scp_data_read(struct file *filp, struct kobject *kobj,
-				 struct bin_attribute *attr, char *buf,
-				 loff_t off, size_t count)
+static struct bin_attribute ipl_parameter_attr = __BIN_ATTR_RO(binary_parameter, PAGE_SIZE);
+
+static ssize_t scp_data_read(struct file *filp, struct kobject *kobj,
+			     struct bin_attribute *attr, char *buf,
+			     loff_t off, size_t count)
 {
 	unsigned int size = ipl_block.fcp.scp_data_len;
 	void *scp_data = &ipl_block.fcp.scp_data;
@@ -394,9 +389,9 @@ static ssize_t ipl_scp_data_read(struct file *filp, struct kobject *kobj,
 	return memory_read_from_buffer(buf, count, &off, scp_data, size);
 }
 
-static ssize_t ipl_nvme_scp_data_read(struct file *filp, struct kobject *kobj,
-				 struct bin_attribute *attr, char *buf,
-				 loff_t off, size_t count)
+static ssize_t nvme_scp_data_read(struct file *filp, struct kobject *kobj,
+				  struct bin_attribute *attr, char *buf,
+				  loff_t off, size_t count)
 {
 	unsigned int size = ipl_block.nvme.scp_data_len;
 	void *scp_data = &ipl_block.nvme.scp_data;
@@ -404,9 +399,9 @@ static ssize_t ipl_nvme_scp_data_read(struct file *filp, struct kobject *kobj,
 	return memory_read_from_buffer(buf, count, &off, scp_data, size);
 }
 
-static ssize_t ipl_eckd_scp_data_read(struct file *filp, struct kobject *kobj,
-				      struct bin_attribute *attr, char *buf,
-				      loff_t off, size_t count)
+static ssize_t eckd_scp_data_read(struct file *filp, struct kobject *kobj,
+				  struct bin_attribute *attr, char *buf,
+				  loff_t off, size_t count)
 {
 	unsigned int size = ipl_block.eckd.scp_data_len;
 	void *scp_data = &ipl_block.eckd.scp_data;
@@ -414,14 +409,9 @@ static ssize_t ipl_eckd_scp_data_read(struct file *filp, struct kobject *kobj,
 	return memory_read_from_buffer(buf, count, &off, scp_data, size);
 }
 
-static struct bin_attribute ipl_scp_data_attr =
-	__BIN_ATTR(scp_data, 0444, ipl_scp_data_read, NULL, PAGE_SIZE);
-
-static struct bin_attribute ipl_nvme_scp_data_attr =
-	__BIN_ATTR(scp_data, 0444, ipl_nvme_scp_data_read, NULL, PAGE_SIZE);
-
-static struct bin_attribute ipl_eckd_scp_data_attr =
-	__BIN_ATTR(scp_data, 0444, ipl_eckd_scp_data_read, NULL, PAGE_SIZE);
+static struct bin_attribute ipl_scp_data_attr = __BIN_ATTR_RO(scp_data, PAGE_SIZE);
+static struct bin_attribute ipl_nvme_scp_data_attr = __BIN_ATTR_RO(nvme_scp_data, PAGE_SIZE);
+static struct bin_attribute ipl_eckd_scp_data_attr = __BIN_ATTR_RO(eckd_scp_data, PAGE_SIZE);
 
 static struct bin_attribute *ipl_fcp_bin_attrs[] = {
 	&ipl_parameter_attr,
@@ -557,15 +547,12 @@ static struct kobj_attribute sys_ipl_ccw_loadparm_attr =
 	__ATTR(loadparm, 0444, ipl_ccw_loadparm_show, NULL);
 
 static struct attribute *ipl_fcp_attrs[] = {
-	&sys_ipl_type_attr.attr,
 	&sys_ipl_device_attr.attr,
 	&sys_ipl_fcp_wwpn_attr.attr,
 	&sys_ipl_fcp_lun_attr.attr,
 	&sys_ipl_fcp_bootprog_attr.attr,
 	&sys_ipl_fcp_br_lba_attr.attr,
 	&sys_ipl_ccw_loadparm_attr.attr,
-	&sys_ipl_secure_attr.attr,
-	&sys_ipl_has_secure_attr.attr,
 	NULL,
 };
 
@@ -575,14 +562,11 @@ static struct attribute_group ipl_fcp_attr_group = {
 };
 
 static struct attribute *ipl_nvme_attrs[] = {
-	&sys_ipl_type_attr.attr,
 	&sys_ipl_nvme_fid_attr.attr,
 	&sys_ipl_nvme_nsid_attr.attr,
 	&sys_ipl_nvme_bootprog_attr.attr,
 	&sys_ipl_nvme_br_lba_attr.attr,
 	&sys_ipl_ccw_loadparm_attr.attr,
-	&sys_ipl_secure_attr.attr,
-	&sys_ipl_has_secure_attr.attr,
 	NULL,
 };
 
@@ -592,13 +576,10 @@ static struct attribute_group ipl_nvme_attr_group = {
 };
 
 static struct attribute *ipl_eckd_attrs[] = {
-	&sys_ipl_type_attr.attr,
 	&sys_ipl_eckd_bootprog_attr.attr,
 	&sys_ipl_eckd_br_chr_attr.attr,
 	&sys_ipl_ccw_loadparm_attr.attr,
 	&sys_ipl_device_attr.attr,
-	&sys_ipl_secure_attr.attr,
-	&sys_ipl_has_secure_attr.attr,
 	NULL,
 };
 
@@ -610,21 +591,15 @@ static struct attribute_group ipl_eckd_attr_group = {
 /* CCW ipl device attributes */
 
 static struct attribute *ipl_ccw_attrs_vm[] = {
-	&sys_ipl_type_attr.attr,
 	&sys_ipl_device_attr.attr,
 	&sys_ipl_ccw_loadparm_attr.attr,
 	&sys_ipl_vm_parm_attr.attr,
-	&sys_ipl_secure_attr.attr,
-	&sys_ipl_has_secure_attr.attr,
 	NULL,
 };
 
 static struct attribute *ipl_ccw_attrs_lpar[] = {
-	&sys_ipl_type_attr.attr,
 	&sys_ipl_device_attr.attr,
 	&sys_ipl_ccw_loadparm_attr.attr,
-	&sys_ipl_secure_attr.attr,
-	&sys_ipl_has_secure_attr.attr,
 	NULL,
 };
 
@@ -636,15 +611,15 @@ static struct attribute_group ipl_ccw_attr_group_lpar = {
 	.attrs = ipl_ccw_attrs_lpar
 };
 
-/* UNKNOWN ipl device attributes */
-
-static struct attribute *ipl_unknown_attrs[] = {
+static struct attribute *ipl_common_attrs[] = {
 	&sys_ipl_type_attr.attr,
+	&sys_ipl_secure_attr.attr,
+	&sys_ipl_has_secure_attr.attr,
 	NULL,
 };
 
-static struct attribute_group ipl_unknown_attr_group = {
-	.attrs = ipl_unknown_attrs,
+static struct attribute_group ipl_common_attr_group = {
+	.attrs = ipl_common_attrs,
 };
 
 static struct kset *ipl_kset;
@@ -668,6 +643,9 @@ static int __init ipl_init(void)
 		rc = -ENOMEM;
 		goto out;
 	}
+	rc = sysfs_create_group(&ipl_kset->kobj, &ipl_common_attr_group);
+	if (rc)
+		goto out;
 	switch (ipl_info.type) {
 	case IPL_TYPE_CCW:
 		if (MACHINE_IS_VM)
@@ -689,8 +667,6 @@ static int __init ipl_init(void)
 		rc = sysfs_create_group(&ipl_kset->kobj, &ipl_nvme_attr_group);
 		break;
 	default:
-		rc = sysfs_create_group(&ipl_kset->kobj,
-					&ipl_unknown_attr_group);
 		break;
 	}
 out:
