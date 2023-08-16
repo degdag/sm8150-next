@@ -2,21 +2,15 @@
 /*
  * Augment the raw_syscalls tracepoints with the contents of the pointer arguments.
  *
- * Test it with:
- *
- * perf trace -e tools/perf/examples/bpf/augmented_raw_syscalls.c cat /etc/passwd > /dev/null
- *
  * This exactly matches what is marshalled into the raw_syscall:sys_enter
  * payload expected by the 'perf trace' beautifiers.
- *
- * For now it just uses the existing tracepoint augmentation code in 'perf
- * trace', in the next csets we'll hook up these with the sys_enter/sys_exit
- * code that will combine entry/exit in a strace like way.
  */
 
 #include <linux/bpf.h>
 #include <bpf/bpf_helpers.h>
 #include <linux/limits.h>
+
+#define MAX_CPUS  4096
 
 // FIXME: These should come from system headers
 typedef char bool;
@@ -34,7 +28,7 @@ struct __augmented_syscalls__ {
 	__uint(type, BPF_MAP_TYPE_PERF_EVENT_ARRAY);
 	__type(key, int);
 	__type(value, __u32);
-	__uint(max_entries, __NR_CPUS__);
+	__uint(max_entries, MAX_CPUS);
 } __augmented_syscalls__ SEC(".maps");
 
 /*
@@ -170,7 +164,7 @@ unsigned int augmented_arg__read_str(struct augmented_arg *augmented_arg, const 
 	return augmented_len;
 }
 
-SEC("!raw_syscalls:unaugmented")
+SEC("tp/raw_syscalls/sys_enter")
 int syscall_unaugmented(struct syscall_enter_args *args)
 {
 	return 1;
@@ -182,7 +176,7 @@ int syscall_unaugmented(struct syscall_enter_args *args)
  * on from there, reading the first syscall arg as a string, i.e. open's
  * filename.
  */
-SEC("!syscalls:sys_enter_connect")
+SEC("tp/syscalls/sys_enter_connect")
 int sys_enter_connect(struct syscall_enter_args *args)
 {
 	struct augmented_args_payload *augmented_args = augmented_args_payload();
@@ -193,15 +187,14 @@ int sys_enter_connect(struct syscall_enter_args *args)
         if (augmented_args == NULL)
                 return 1; /* Failure: don't filter */
 
-	if (socklen > sizeof(augmented_args->saddr))
-		socklen = sizeof(augmented_args->saddr);
+	socklen &= sizeof(augmented_args->saddr) - 1;
 
 	bpf_probe_read(&augmented_args->saddr, socklen, sockaddr_arg);
 
 	return augmented__output(args, augmented_args, len + socklen);
 }
 
-SEC("!syscalls:sys_enter_sendto")
+SEC("tp/syscalls/sys_enter_sendto")
 int sys_enter_sendto(struct syscall_enter_args *args)
 {
 	struct augmented_args_payload *augmented_args = augmented_args_payload();
@@ -212,15 +205,14 @@ int sys_enter_sendto(struct syscall_enter_args *args)
         if (augmented_args == NULL)
                 return 1; /* Failure: don't filter */
 
-	if (socklen > sizeof(augmented_args->saddr))
-		socklen = sizeof(augmented_args->saddr);
+	socklen &= sizeof(augmented_args->saddr) - 1;
 
 	bpf_probe_read(&augmented_args->saddr, socklen, sockaddr_arg);
 
 	return augmented__output(args, augmented_args, len + socklen);
 }
 
-SEC("!syscalls:sys_enter_open")
+SEC("tp/syscalls/sys_enter_open")
 int sys_enter_open(struct syscall_enter_args *args)
 {
 	struct augmented_args_payload *augmented_args = augmented_args_payload();
@@ -235,7 +227,7 @@ int sys_enter_open(struct syscall_enter_args *args)
 	return augmented__output(args, augmented_args, len);
 }
 
-SEC("!syscalls:sys_enter_openat")
+SEC("tp/syscalls/sys_enter_openat")
 int sys_enter_openat(struct syscall_enter_args *args)
 {
 	struct augmented_args_payload *augmented_args = augmented_args_payload();
@@ -250,7 +242,7 @@ int sys_enter_openat(struct syscall_enter_args *args)
 	return augmented__output(args, augmented_args, len);
 }
 
-SEC("!syscalls:sys_enter_rename")
+SEC("tp/syscalls/sys_enter_rename")
 int sys_enter_rename(struct syscall_enter_args *args)
 {
 	struct augmented_args_payload *augmented_args = augmented_args_payload();
@@ -267,7 +259,7 @@ int sys_enter_rename(struct syscall_enter_args *args)
 	return augmented__output(args, augmented_args, len);
 }
 
-SEC("!syscalls:sys_enter_renameat")
+SEC("tp/syscalls/sys_enter_renameat")
 int sys_enter_renameat(struct syscall_enter_args *args)
 {
 	struct augmented_args_payload *augmented_args = augmented_args_payload();
@@ -295,7 +287,7 @@ struct perf_event_attr_size {
         __u32                   size;
 };
 
-SEC("!syscalls:sys_enter_perf_event_open")
+SEC("tp/syscalls/sys_enter_perf_event_open")
 int sys_enter_perf_event_open(struct syscall_enter_args *args)
 {
 	struct augmented_args_payload *augmented_args = augmented_args_payload();
@@ -327,7 +319,7 @@ failure:
 	return 1; /* Failure: don't filter */
 }
 
-SEC("!syscalls:sys_enter_clock_nanosleep")
+SEC("tp/syscalls/sys_enter_clock_nanosleep")
 int sys_enter_clock_nanosleep(struct syscall_enter_args *args)
 {
 	struct augmented_args_payload *augmented_args = augmented_args_payload();
@@ -358,7 +350,7 @@ static bool pid_filter__has(struct pids_filtered *pids, pid_t pid)
 	return bpf_map_lookup_elem(pids, &pid) != NULL;
 }
 
-SEC("raw_syscalls:sys_enter")
+SEC("tp/raw_syscalls/sys_enter")
 int sys_enter(struct syscall_enter_args *args)
 {
 	struct augmented_args_payload *augmented_args;
@@ -371,7 +363,6 @@ int sys_enter(struct syscall_enter_args *args)
 	 * We'll add to this as we add augmented syscalls right after that
 	 * initial, non-augmented raw_syscalls:sys_enter payload.
 	 */
-	unsigned int len = sizeof(augmented_args->args);
 
 	if (pid_filter__has(&pids_filtered, getpid()))
 		return 0;
@@ -393,7 +384,7 @@ int sys_enter(struct syscall_enter_args *args)
 	return 0;
 }
 
-SEC("raw_syscalls:sys_exit")
+SEC("tp/raw_syscalls/sys_exit")
 int sys_exit(struct syscall_exit_args *args)
 {
 	struct syscall_exit_args exit_args;
