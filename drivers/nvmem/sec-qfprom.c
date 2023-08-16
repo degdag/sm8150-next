@@ -56,7 +56,6 @@ static int sec_qfprom_probe(struct platform_device *pdev)
 	struct nvmem_device *nvmem;
 	struct sec_qfprom *priv;
 	struct resource *res;
-	int ret;
 
 	priv = devm_kzalloc(dev, sizeof(*priv), GFP_KERNEL);
 	if (!priv)
