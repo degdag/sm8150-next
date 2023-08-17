@@ -19,6 +19,7 @@
 #include <linux/of_mdio.h>
 #include <linux/of_net.h>
 #include <linux/of_device.h>
+#include <linux/of_platform.h>
 #include <linux/phylink.h>
 #include <linux/phy/phy.h>
 #include <linux/platform_device.h>
@@ -631,6 +632,9 @@ static int am65_cpsw_nuss_ndo_slave_open(struct net_device *ndev)
 
 	/* restore vlan configurations */
 	vlan_for_each(ndev, cpsw_restore_vlans, port);
+
+	/* Initialize QoS */
+	am65_cpsw_qos_mqprio_init(port);
 
 	phylink_start(port->slave.phylink);
 
