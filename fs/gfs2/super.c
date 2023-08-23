@@ -622,6 +622,7 @@ restart:
 	if (!sb_rdonly(sb)) {
 		gfs2_make_fs_ro(sdp);
 	}
+	gfs2_quota_wait_cleanup(sdp);
 	WARN_ON(gfs2_withdrawing(sdp));
 
 	/*  At this point, we're through modifying the disk  */
