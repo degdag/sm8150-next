@@ -147,7 +147,6 @@ static bool io_uring_try_cancel_requests(struct io_ring_ctx *ctx,
 					 bool cancel_all);
 
 static void io_queue_sqe(struct io_kiocb *req);
-static void __io_submit_flush_completions(struct io_ring_ctx *ctx);
 
 struct kmem_cache *req_cachep;
 
@@ -616,7 +615,7 @@ void __io_commit_cqring_flush(struct io_ring_ctx *ctx)
 
 static inline void __io_cq_lock(struct io_ring_ctx *ctx)
 {
-	if (!ctx->task_complete)
+	if (!ctx->lockless_cq)
 		spin_lock(&ctx->completion_lock);
 }
 
@@ -629,19 +628,14 @@ static inline void io_cq_lock(struct io_ring_ctx *ctx)
 static inline void __io_cq_unlock_post(struct io_ring_ctx *ctx)
 {
 	io_commit_cqring(ctx);
-
-	if (ctx->task_complete) {
-		/*
-		 * ->task_complete implies that only current might be waiting
-		 * for CQEs, and obviously, we currently don't. No one is
-		 * waiting, wakeups are futile, skip them.
-		 */
-		io_commit_cqring_flush(ctx);
-	} else {
-		spin_unlock(&ctx->completion_lock);
-		io_commit_cqring_flush(ctx);
-		io_cqring_wake(ctx);
+	if (!ctx->task_complete) {
+		if (!ctx->lockless_cq)
+			spin_unlock(&ctx->completion_lock);
+		/* IOPOLL rings only need to wake up if it's also SQPOLL */
+		if (!ctx->syscall_iopoll)
+			io_cqring_wake(ctx);
 	}
+	io_commit_cqring_flush(ctx);
 }
 
 static void io_cq_unlock_post(struct io_ring_ctx *ctx)
@@ -649,8 +643,8 @@ static void io_cq_unlock_post(struct io_ring_ctx *ctx)
 {
 	io_commit_cqring(ctx);
 	spin_unlock(&ctx->completion_lock);
-	io_commit_cqring_flush(ctx);
 	io_cqring_wake(ctx);
+	io_commit_cqring_flush(ctx);
 }
 
 /* Returns true if there are no backlogged entries after the flush */
@@ -683,10 +677,10 @@ static void __io_cqring_overflow_flush(struct io_ring_ctx *ctx)
 
 	io_cq_lock(ctx);
 	while (!list_empty(&ctx->cq_overflow_list)) {
-		struct io_uring_cqe *cqe = io_get_cqe_overflow(ctx, true);
+		struct io_uring_cqe *cqe;
 		struct io_overflow_cqe *ocqe;
 
-		if (!cqe)
+		if (!io_get_cqe_overflow(ctx, &cqe, true))
 			break;
 		ocqe = list_first_entry(&ctx->cq_overflow_list,
 					struct io_overflow_cqe, list);
@@ -807,13 +801,10 @@ static bool io_cqring_event_overflow(struct io_ring_ctx *ctx, u64 user_data,
 
 void io_req_cqe_overflow(struct io_kiocb *req)
 {
-	if (!(req->flags & REQ_F_CQE32_INIT)) {
-		req->extra1 = 0;
-		req->extra2 = 0;
-	}
 	io_cqring_event_overflow(req->ctx, req->cqe.user_data,
 				req->cqe.res, req->cqe.flags,
-				req->extra1, req->extra2);
+				req->big_cqe.extra1, req->big_cqe.extra2);
+	memset(&req->big_cqe, 0, sizeof(req->big_cqe));
 }
 
 /*
@@ -821,7 +812,7 @@ void io_req_cqe_overflow(struct io_kiocb *req)
  * control dependency is enough as we're using WRITE_ONCE to
  * fill the cq entry
  */
-struct io_uring_cqe *__io_get_cqe(struct io_ring_ctx *ctx, bool overflow)
+bool io_cqe_cache_refill(struct io_ring_ctx *ctx, bool overflow)
 {
 	struct io_rings *rings = ctx->rings;
 	unsigned int off = ctx->cached_cq_tail & (ctx->cq_entries - 1);
@@ -833,7 +824,7 @@ struct io_uring_cqe *__io_get_cqe(struct io_ring_ctx *ctx, bool overflow)
 	 * Force overflow the completion.
 	 */
 	if (!overflow && (ctx->check_cq & BIT(IO_CHECK_CQ_OVERFLOW_BIT)))
-		return NULL;
+		return false;
 
 	/* userspace may cheat modifying the tail, be safe and do min */
 	queued = min(__io_cqring_events(ctx), ctx->cq_entries);
@@ -841,7 +832,7 @@ struct io_uring_cqe *__io_get_cqe(struct io_ring_ctx *ctx, bool overflow)
 	/* we need a contiguous range, limit based on the current array offset */
 	len = min(free, ctx->cq_entries - off);
 	if (!len)
-		return NULL;
+		return false;
 
 	if (ctx->flags & IORING_SETUP_CQE32) {
 		off <<= 1;
@@ -850,12 +841,7 @@ struct io_uring_cqe *__io_get_cqe(struct io_ring_ctx *ctx, bool overflow)
 
 	ctx->cqe_cached = &rings->cqes[off];
 	ctx->cqe_sentinel = ctx->cqe_cached + len;
-
-	ctx->cached_cq_tail++;
-	ctx->cqe_cached++;
-	if (ctx->flags & IORING_SETUP_CQE32)
-		ctx->cqe_cached++;
-	return &rings->cqes[off];
+	return true;
 }
 
 static bool io_fill_cqe_aux(struct io_ring_ctx *ctx, u64 user_data, s32 res,
@@ -870,8 +856,7 @@ static bool io_fill_cqe_aux(struct io_ring_ctx *ctx, u64 user_data, s32 res,
 	 * submission (by quite a lot). Increment the overflow count in
 	 * the ring.
 	 */
-	cqe = io_get_cqe(ctx);
-	if (likely(cqe)) {
+	if (likely(io_get_cqe(ctx, &cqe))) {
 		trace_io_uring_complete(ctx, NULL, user_data, res, cflags, 0, 0);
 
 		WRITE_ONCE(cqe->user_data, user_data);
@@ -895,7 +880,7 @@ static void __io_flush_post_cqes(struct io_ring_ctx *ctx)
 
 	lockdep_assert_held(&ctx->uring_lock);
 	for (i = 0; i < state->cqes_count; i++) {
-		struct io_uring_cqe *cqe = &state->cqes[i];
+		struct io_uring_cqe *cqe = &ctx->completion_cqes[i];
 
 		if (!io_fill_cqe_aux(ctx, cqe->user_data, cqe->res, cqe->flags)) {
 			if (ctx->task_complete) {
@@ -946,7 +931,7 @@ bool io_fill_cqe_req_aux(struct io_kiocb *req, bool defer, s32 res, u32 cflags)
 
 	lockdep_assert_held(&ctx->uring_lock);
 
-	if (ctx->submit_state.cqes_count == ARRAY_SIZE(ctx->submit_state.cqes)) {
+	if (ctx->submit_state.cqes_count == ARRAY_SIZE(ctx->completion_cqes)) {
 		__io_cq_lock(ctx);
 		__io_flush_post_cqes(ctx);
 		/* no need to flush - flush is deferred */
@@ -960,7 +945,7 @@ bool io_fill_cqe_req_aux(struct io_kiocb *req, bool defer, s32 res, u32 cflags)
 	if (test_bit(IO_CHECK_CQ_OVERFLOW_BIT, &ctx->check_cq))
 		return false;
 
-	cqe = &ctx->submit_state.cqes[ctx->submit_state.cqes_count++];
+	cqe = &ctx->completion_cqes[ctx->submit_state.cqes_count++];
 	cqe->user_data = user_data;
 	cqe->res = res;
 	cqe->flags = cflags;
@@ -1056,7 +1041,8 @@ static void io_preinit_req(struct io_kiocb *req, struct io_ring_ctx *ctx)
 	req->link = NULL;
 	req->async_data = NULL;
 	/* not necessary, but safer to zero */
-	req->cqe.res = 0;
+	memset(&req->cqe, 0, sizeof(req->cqe));
+	memset(&req->big_cqe, 0, sizeof(req->big_cqe));
 }
 
 static void io_flush_cached_locked_reqs(struct io_ring_ctx *ctx,
@@ -1501,7 +1487,8 @@ void io_queue_next(struct io_kiocb *req)
 		io_req_task_queue(nxt);
 }
 
-void io_free_batch_list(struct io_ring_ctx *ctx, struct io_wq_work_node *node)
+static void io_free_batch_list(struct io_ring_ctx *ctx,
+			       struct io_wq_work_node *node)
 	__must_hold(&ctx->uring_lock)
 {
 	do {
@@ -1538,7 +1525,7 @@ void io_free_batch_list(struct io_ring_ctx *ctx, struct io_wq_work_node *node)
 	} while (node);
 }
 
-static void __io_submit_flush_completions(struct io_ring_ctx *ctx)
+void __io_submit_flush_completions(struct io_ring_ctx *ctx)
 	__must_hold(&ctx->uring_lock)
 {
 	struct io_submit_state *state = &ctx->submit_state;
@@ -2360,8 +2347,21 @@ static void io_commit_sqring(struct io_ring_ctx *ctx)
  */
 static bool io_get_sqe(struct io_ring_ctx *ctx, const struct io_uring_sqe **sqe)
 {
-	unsigned head, mask = ctx->sq_entries - 1;
-	unsigned sq_idx = ctx->cached_sq_head++ & mask;
+	unsigned mask = ctx->sq_entries - 1;
+	unsigned head = ctx->cached_sq_head++ & mask;
+
+	if (!(ctx->flags & IORING_SETUP_NO_SQARRAY)) {
+		head = READ_ONCE(ctx->sq_array[head]);
+		if (unlikely(head >= ctx->sq_entries)) {
+			/* drop invalid entries */
+			spin_lock(&ctx->completion_lock);
+			ctx->cq_extra--;
+			spin_unlock(&ctx->completion_lock);
+			WRITE_ONCE(ctx->rings->sq_dropped,
+				   READ_ONCE(ctx->rings->sq_dropped) + 1);
+			return false;
+		}
+	}
 
 	/*
 	 * The cached sq head (or cq tail) serves two purposes:
@@ -2371,22 +2371,12 @@ static bool io_get_sqe(struct io_ring_ctx *ctx, const struct io_uring_sqe **sqe)
 	 * 2) allows the kernel side to track the head on its own, even
 	 *    though the application is the one updating it.
 	 */
-	head = READ_ONCE(ctx->sq_array[sq_idx]);
-	if (likely(head < ctx->sq_entries)) {
-		/* double index for 128-byte SQEs, twice as long */
-		if (ctx->flags & IORING_SETUP_SQE128)
-			head <<= 1;
-		*sqe = &ctx->sq_sqes[head];
-		return true;
-	}
 
-	/* drop invalid entries */
-	spin_lock(&ctx->completion_lock);
-	ctx->cq_extra--;
-	spin_unlock(&ctx->completion_lock);
-	WRITE_ONCE(ctx->rings->sq_dropped,
-		   READ_ONCE(ctx->rings->sq_dropped) + 1);
-	return false;
+	/* double index for 128-byte SQEs, twice as long */
+	if (ctx->flags & IORING_SETUP_SQE128)
+		head <<= 1;
+	*sqe = &ctx->sq_sqes[head];
+	return true;
 }
 
 int io_submit_sqes(struct io_ring_ctx *ctx, unsigned int nr)
@@ -2765,6 +2755,12 @@ static unsigned long rings_size(struct io_ring_ctx *ctx, unsigned int sq_entries
 	if (off == 0)
 		return SIZE_MAX;
 #endif
+
+	if (ctx->flags & IORING_SETUP_NO_SQARRAY) {
+		if (sq_offset)
+			*sq_offset = SIZE_MAX;
+		return off;
+	}
 
 	if (sq_offset)
 		*sq_offset = off;
@@ -3737,7 +3733,8 @@ static __cold int io_allocate_scq_urings(struct io_ring_ctx *ctx,
 		return PTR_ERR(rings);
 
 	ctx->rings = rings;
-	ctx->sq_array = (u32 *)((char *)rings + sq_array_offset);
+	if (!(ctx->flags & IORING_SETUP_NO_SQARRAY))
+		ctx->sq_array = (u32 *)((char *)rings + sq_array_offset);
 	rings->sq_ring_mask = p->sq_entries - 1;
 	rings->cq_ring_mask = p->cq_entries - 1;
 	rings->sq_ring_entries = p->sq_entries;
@@ -3866,6 +3863,9 @@ static __cold int io_uring_create(unsigned entries, struct io_uring_params *p,
 	    !(ctx->flags & IORING_SETUP_SQPOLL))
 		ctx->task_complete = true;
 
+	if (ctx->task_complete || (ctx->flags & IORING_SETUP_IOPOLL))
+		ctx->lockless_cq = true;
+
 	/*
 	 * lazy poll_wq activation relies on ->task_complete for synchronisation
 	 * purposes, see io_activate_pollwq()
@@ -3945,7 +3945,8 @@ static __cold int io_uring_create(unsigned entries, struct io_uring_params *p,
 	p->sq_off.ring_entries = offsetof(struct io_rings, sq_ring_entries);
 	p->sq_off.flags = offsetof(struct io_rings, sq_flags);
 	p->sq_off.dropped = offsetof(struct io_rings, sq_dropped);
-	p->sq_off.array = (char *)ctx->sq_array - (char *)ctx->rings;
+	if (!(ctx->flags & IORING_SETUP_NO_SQARRAY))
+		p->sq_off.array = (char *)ctx->sq_array - (char *)ctx->rings;
 	p->sq_off.resv1 = 0;
 	if (!(ctx->flags & IORING_SETUP_NO_MMAP))
 		p->sq_off.user_addr = 0;
@@ -4034,7 +4035,8 @@ static long io_uring_setup(u32 entries, struct io_uring_params __user *params)
 			IORING_SETUP_COOP_TASKRUN | IORING_SETUP_TASKRUN_FLAG |
 			IORING_SETUP_SQE128 | IORING_SETUP_CQE32 |
 			IORING_SETUP_SINGLE_ISSUER | IORING_SETUP_DEFER_TASKRUN |
-			IORING_SETUP_NO_MMAP | IORING_SETUP_REGISTERED_FD_ONLY))
+			IORING_SETUP_NO_MMAP | IORING_SETUP_REGISTERED_FD_ONLY |
+			IORING_SETUP_NO_SQARRAY))
 		return -EINVAL;
 
 	return io_uring_create(entries, &p, params);
