@@ -4,7 +4,7 @@
  *
  *      (c) Copyright 2000 Red Hat Software
  *      (c) Copyright 2000 Helge Deller <hdeller@redhat.com>
- *      (c) Copyright 2001-2009 Helge Deller <deller@gmx.de>
+ *      (c) Copyright 2001-2023 Helge Deller <deller@gmx.de>
  *      (c) Copyright 2001 Randolph Chung <tausq@debian.org>
  *
  * TODO:
@@ -56,14 +56,13 @@
 static int led_type __read_mostly = -1;
 static unsigned char lastleds;	/* LED state from most recent update */
 static unsigned int led_heartbeat __read_mostly = 1;
-static unsigned int led_diskio    __read_mostly = 1;
-static unsigned int led_lanrxtx   __read_mostly = 1;
+static unsigned int led_diskio    __read_mostly;
+static unsigned int led_lanrxtx   __read_mostly;
 static char lcd_text[32]          __read_mostly;
 static char lcd_text_default[32]  __read_mostly;
 static int  lcd_no_led_support    __read_mostly = 0; /* KittyHawk doesn't support LED on its LCD */
 
 
-static struct workqueue_struct *led_wq;
 static void led_work_func(struct work_struct *);
 static DECLARE_DELAYED_WORK(led_task, led_work_func);
 
@@ -135,12 +134,7 @@ static int start_task(void)
 	/* KittyHawk has no LED support on its LCD */
 	if (lcd_no_led_support) return 0;
 
-	/* Create the work queue and queue the LED task */
-	led_wq = create_singlethread_workqueue("led_wq");	
-	if (!led_wq)
-		return -ENOMEM;
-
-	queue_delayed_work(led_wq, &led_task, 0);
+	schedule_delayed_work(&led_task, 0);
 
 	return 0;
 }
@@ -445,6 +439,16 @@ static void led_work_func (struct work_struct *unused)
 	if (!led_func_ptr)
 	    return;
 
+	/* minimal CPU overhead: toggle heartbeat LED every second */
+	if (!led_lanrxtx && !led_diskio) {
+		currentleds = lastleds & LED_HEARTBEAT;
+		currentleds ^= LED_HEARTBEAT;
+		led_func_ptr(currentleds);
+		lastleds = currentleds;
+		schedule_delayed_work(&led_task, HZ);
+		return;
+	}
+
 	/* increment the heartbeat timekeeper */
 	count_HZ += jiffies - last_jiffies;
 	last_jiffies = jiffies;
@@ -486,7 +490,7 @@ static void led_work_func (struct work_struct *unused)
 		lastleds = currentleds;
 	}
 
-	queue_delayed_work(led_wq, &led_task, LED_UPDATE_INTERVAL);
+	schedule_delayed_work(&led_task, LED_UPDATE_INTERVAL);
 }
 
 /*
@@ -521,14 +525,10 @@ static int led_halt(struct notifier_block *nb, unsigned long event, void *buf)
 				break;
 	default:		return NOTIFY_DONE;
 	}
-	
+
 	/* Cancel the work item and delete the queue */
-	if (led_wq) {
-		cancel_delayed_work_sync(&led_task);
-		destroy_workqueue(led_wq);
-		led_wq = NULL;
-	}
- 
+	cancel_delayed_work_sync(&led_task);
+
 	if (lcd_info.model == DISPLAY_MODEL_LCD)
 		lcd_print(txt);
 	else
@@ -588,16 +588,15 @@ int __init register_led_driver(int model, unsigned long cmd_reg, unsigned long d
 		       __func__, lcd_info.model);
 		return 1;
 	}
-	
+
+	if (led_type == LED_NOLCD)
+		pr_info("LEDs: If needed, please enable disk and LAN "
+			"activity LEDs via /proc/pdc/led\n");
+
 	/* mark the LCD/LED driver now as initialized and 
 	 * register to the reboot notifier chain */
 	initialized++;
 	register_reboot_notifier(&led_notifier);
-
-	/* Ensure the work is queued */
-	if (led_wq) {
-		queue_delayed_work(led_wq, &led_task, 0);
-	}
 
 	return 0;
 }
@@ -643,10 +642,8 @@ int lcd_print( const char *str )
 
 	if (!led_func_ptr || lcd_info.model != DISPLAY_MODEL_LCD)
 	    return 0;
-	
-	/* temporarily disable the led work task */
-	if (led_wq)
-		cancel_delayed_work_sync(&led_task);
+
+	cancel_delayed_work_sync(&led_task);
 
 	/* copy display string to buffer for procfs */
 	strscpy(lcd_text, str, sizeof(lcd_text));
@@ -663,11 +660,8 @@ int lcd_print( const char *str )
 		gsc_writeb(' ', LCD_DATA_REG);
 	    udelay(lcd_info.min_cmd_delay);
 	}
-	
-	/* re-queue the work */
-	if (led_wq) {
-		queue_delayed_work(led_wq, &led_task, 0);
-	}
+
+	schedule_delayed_work(&led_task, LED_UPDATE_INTERVAL);
 
 	return lcd_info.lcd_width;
 }
