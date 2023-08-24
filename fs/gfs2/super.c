@@ -546,7 +546,7 @@ void gfs2_make_fs_ro(struct gfs2_sbd *sdp)
 {
 	int log_write_allowed = test_bit(SDF_JOURNAL_LIVE, &sdp->sd_flags);
 
-	if (!test_bit(SDF_DEACTIVATING, &sdp->sd_flags))
+	if (!test_bit(SDF_KILL, &sdp->sd_flags))
 		gfs2_flush_delete_work(sdp);
 
 	if (!log_write_allowed && current == sdp->sd_quotad_process)
@@ -622,6 +622,7 @@ restart:
 	if (!sb_rdonly(sb)) {
 		gfs2_make_fs_ro(sdp);
 	}
+	gfs2_quota_wait_cleanup(sdp);
 	WARN_ON(gfs2_withdrawing(sdp));
 
 	/*  At this point, we're through modifying the disk  */
